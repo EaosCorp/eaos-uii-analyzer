@@ -1,10 +1,17 @@
 """HTTP API + SSE event stream. Stdlib only — the /v1 surface of the core:
 
+  GET  /.well-known/uii                           discovery (no auth, spec 5.1)
   GET  /v1/system · /v1/modules · /v1/roles · /v1/capabilities
-  GET  /v1/observations/latest · /v1/calibrations[?module=]
-  GET  /v1/evidence [·/{id} ·/{id}/lineage]      one query surface
+  GET  /v1/modules/{id}/commands                  the exposed command surface:
+                                                  params, risk, preconditions
+  GET  /v1/modules/{id}/history                   the digital record: swaps,
+                                                  calibrations, service events
+  GET  /v1/observations[?channel=&module=&since=] · /v1/observations/latest
+  GET  /v1/calibrations[?module=]
+  GET  /v1/evidence [·/{id} ·/{id}/lineage]       one query surface
   GET  /v1/events                                 SSE, Last-Event-ID resume
   POST /v1/commands · GET /v1/commands/{id}
+  POST /v1/commands/{id}/cancel                   cooperative cancel
   POST /v1/modules/{id}/release                   quarantine release
 
 Extension hooks:
@@ -73,12 +80,21 @@ def make_handler(hub):
         # -- GET ------------------------------------------------------------
 
         def do_GET(self):
-            actor, ok = self._auth()
-            if not ok:
-                return
             url = urlparse(self.path)
             q = {k: v[0] for k, v in parse_qs(url.query).items()}
             path = url.path
+
+            if path == "/.well-known/uii":     # discovery is auth-free
+                return self._json({
+                    "uii": "0.2", "hub": store.hub_id,
+                    "api": "/v1", "events": {"sse": "/v1/events"},
+                    "auth": ({"modes": ["bearer"]} if hub.api_auth
+                             else {"modes": ["open"]}),
+                    "vendor": {"name": "Eaos", "product": "uii-analyzer"}})
+
+            actor, ok = self._auth()
+            if not ok:
+                return
 
             if path == "/v1/system":
                 return self._json({
@@ -106,6 +122,32 @@ def make_handler(hub):
                     "modules": [{"id": s.module_id, "type": s.module_type,
                                  "role": s.role, "manifest": s.manifest}
                                 for s in southbound.sessions.values()]})
+
+            if path == "/v1/observations":
+                envs = store.query(kind="observation",
+                                   module=q.get("module"),
+                                   channel=q.get("channel"),
+                                   since_seq=int(q.get("since", 0)),
+                                   limit=int(q.get("limit", 200)))
+                return self._json({"items": envs,
+                                   "next_cursor": envs[-1]["sequence"] if envs else None})
+
+            m = re.fullmatch(r"/v1/modules/([\w-]+)/commands", path)
+            if m:
+                session = southbound.sessions.get(m.group(1))
+                if not session:
+                    return self._problem(404, "urn:uii:problem:not-found",
+                                         f"no adopted module '{m.group(1)}'")
+                return self._json({"module": m.group(1),
+                                   "commands": session.manifest.get("commands", [])})
+
+            m = re.fullmatch(r"/v1/modules/([\w-]+)/history", path)
+            if m:
+                envs = store.query(module=m.group(1),
+                                   kind=q.get("kind", "identity,calibration,config,event"),
+                                   since_seq=int(q.get("since", 0)),
+                                   limit=int(q.get("limit", 500)))
+                return self._json({"module": m.group(1), "items": envs})
 
             if path == "/v1/observations/latest":
                 out = []
@@ -164,6 +206,15 @@ def make_handler(hub):
             if not ok:
                 return
             url = urlparse(self.path)
+
+            m = re.fullmatch(r"/v1/commands/([\w-]+)/cancel", url.path)
+            if m:
+                summary, problem = gateway.cancel(
+                    m.group(1), actor=auth_actor or "user:api")
+                if problem:
+                    code = 404 if problem["type"].endswith("not-found") else 422
+                    return self._problem(code, problem["type"], problem["detail"])
+                return self._json(summary, 202)
 
             m = re.fullmatch(r"/v1/modules/([\w-]+)/release", url.path)
             if m:

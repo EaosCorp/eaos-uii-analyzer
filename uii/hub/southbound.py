@@ -147,7 +147,13 @@ class ModuleSession:
                     self.identity_event("recovered")
                 self._handle(msg)
         finally:
-            if self.state in ("OPERATIONAL", "DEGRADED"):
+            if getattr(self.hub, "draining", False):
+                # the HUB is shutting down, not the module: emit nothing.
+                # The module keeps executing, buffers its messages, and
+                # redials when we come back — a restart must not read as a
+                # module loss in the evidence.
+                self.hub.sessions.pop(self.module_id, None)
+            elif self.state in ("OPERATIONAL", "DEGRADED"):
                 self.state = "REMOVED"
                 self.identity_event("removed")
                 self.hub.sessions.pop(self.module_id, None)
@@ -155,6 +161,19 @@ class ModuleSession:
                     "event", {"event": "role-vacant", "role": self.role,
                               "slot": self.slot},
                     "urn:uii:schema:event:0.1", actor="system:hub")
+                # one result per command, always (spec 6.3): commands still
+                # in flight when the module disappeared get their terminal
+                # result now
+                for cmd_id, cmd in list(self.commands.items()):
+                    self.hub.store.append(
+                        "result", {"status": "failed",
+                                   "problem": "urn:uii:problem:module-lost",
+                                   "reason": "module removed mid-command"},
+                        "urn:uii:schema:result:0.1", module=self.module_id,
+                        trace={"command_id": cmd_id,
+                               "causation_id": cmd["id"],
+                               "correlation_id": cmd_id})
+                self.commands.clear()
             try:
                 self.writer.close()
             except Exception:
@@ -225,7 +244,7 @@ class ModuleSession:
                     for k in sorted(self.telem_ids)[:250]:
                         self.telem_ids.pop(k, None)
         elif t == "ACK":
-            cmd = self.commands.get(msg.get("command_id"))
+            cmd = self._command_env(msg.get("command_id"))
             ack = store.append("ack",
                                {"accepted": bool(msg.get("accepted")),
                                 "reason": msg.get("reason")},
@@ -245,7 +264,7 @@ class ModuleSession:
                                     "causation_id": ack["id"],
                                     "correlation_id": msg.get("command_id")})
         elif t == "PROGRESS":
-            cmd = self.commands.get(msg.get("command_id"))
+            cmd = self._command_env(msg.get("command_id"))
             store.append("progress",
                          {"pct": msg.get("pct"), "message": msg.get("message")},
                          "urn:uii:schema:progress:0.1", module=self.module_id,
@@ -255,10 +274,20 @@ class ModuleSession:
         elif t == "RESULT":
             self._handle_result(msg)
 
+    def _command_env(self, cmd_id):
+        """In-memory first; fall back to the store so command context
+        survives a hub restart mid-run (the module kept executing and
+        delivers its buffered ACK/PROGRESS/RESULT after we come back)."""
+        cmd = self.commands.get(cmd_id)
+        if cmd is None and cmd_id:
+            hit = self.hub.store.query(command_id=cmd_id, kind="command", limit=1)
+            cmd = hit[0] if hit else None
+        return cmd
+
     def _handle_result(self, msg: dict):
         store = self.hub.store
         cmd_id = msg.get("command_id")
-        cmd = self.commands.pop(cmd_id, None)
+        cmd = self.commands.pop(cmd_id, None) or self._command_env(cmd_id)
         raw_refs = [self.telem_ids[s] for s in (msg.get("raw_local_seqs") or [])
                     if s in self.telem_ids]
         result = store.append(
@@ -286,6 +315,7 @@ class SouthboundHub:
         self.config = config
         self.sessions: dict[str, ModuleSession] = {}
         self.quarantined: dict[str, ModuleSession] = {}
+        self.draining = False   # set by Hub.stop(): restart, not module loss
         self.registry: dict[str, dict] = {}   # module_id -> last-known info
         # instrument_class -> callable(session, cmd_env, result_env,
         #                              outputs, raw_refs)

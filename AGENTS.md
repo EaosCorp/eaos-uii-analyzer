@@ -42,7 +42,10 @@ real defect, not flakiness (fix the race properly if it is one).
 
 ```bash
 uii --json system | modules | roles | health | alerts | obs | cal | approvals
+uii --json commands <id>               # discover the exposed command surface
 uii --json cmd <type> --module <id> [--param k=v] --actor agent:<you> --watch
+uii --json cancel <command-id>          # cooperative cancel (audited)
+uii --json history <id>                 # the module's digital record
 uii --json ack <rule> --module <id>
 uii --json release <module-id>
 uii --json evidence --kind identity --module <id>

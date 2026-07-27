@@ -11,7 +11,12 @@ CORE verbs (work against any hub):
   uii roles                           role registry + occupancy
   uii obs [--channel nh4]             latest observations (faceplate)
   uii cal [--module m]                latest calibrations
+  uii commands MODULE                 what can this module do: every exposed
+                                      command w/ params, risk, preconditions
   uii cmd TYPE --module M [--param k=v ...] [--actor a] [--watch]
+  uii cancel COMMAND_ID               cooperative cancel (audited abort)
+  uii history MODULE                  the digital record: swaps, calibrations,
+                                      service events, in order
   uii release MODULE                  release a quarantined module (logged)
 
 EXTENSION verbs (need the matching extension enabled on the hub,
@@ -129,6 +134,10 @@ def main(argv=None):
     sub.add_parser("health")
     s = sub.add_parser("ack")
     s.add_argument("rule"); s.add_argument("--module", required=True)
+    s = sub.add_parser("commands"); s.add_argument("module")
+    s = sub.add_parser("cancel"); s.add_argument("id")
+    s.add_argument("--actor", default="user:local")
+    s = sub.add_parser("history"); s.add_argument("module")
     s = sub.add_parser("release"); s.add_argument("module")
     s = sub.add_parser("watch"); s.add_argument("--kind")
     s = sub.add_parser("evidence")
@@ -265,6 +274,40 @@ def main(argv=None):
                            {"rule": a.rule, "module": a.module})
         print(json.dumps(resp, indent=2))
         return 0 if code == 200 else 3
+
+    elif a.verb == "commands":
+        out = _get(base, f"/v1/modules/{a.module}/commands")
+        if _JSON:
+            print(json.dumps(out, indent=2))
+        else:
+            for c in out["commands"]:
+                spec = c.get("params") or {}
+                pdesc = ", ".join(
+                    f"{k}:{v.get('type', '?')}{'*' if isinstance(v, dict) and v.get('required') else ''}"
+                    if isinstance(v, dict) else f"{k}"
+                    for k, v in spec.items()) or "-"
+                pre = ", ".join(c.get("preconditions") or []) or "-"
+                dur = c.get("typical_duration_s")
+                print(f"{c['type']:<14} risk={c.get('risk', 'routine'):<11} "
+                      f"params[{pdesc}]  requires[{pre}]"
+                      + (f"  ~{dur:.0f}s" if dur else ""))
+
+    elif a.verb == "cancel":
+        code, resp = _post(base, f"/v1/commands/{a.id}/cancel",
+                           {"actor": a.actor})
+        print(json.dumps(resp, indent=2))
+        return 0 if code == 202 else 3
+
+    elif a.verb == "history":
+        items = _get(base, f"/v1/modules/{a.module}/history")["items"]
+        if _JSON:
+            print(json.dumps({"items": items}, indent=2))
+        else:
+            for e in items:
+                d = e.get("data") or {}
+                label = d.get("event") or e["kind"]
+                print(f"{e['time']}  {e['kind']:<12} {label:<20} "
+                      f"{json.dumps({k: v for k, v in d.items() if k != 'event'})[:80]}")
 
     elif a.verb == "release":
         code, resp = _post(base, f"/v1/modules/{a.module}/release", {})

@@ -97,9 +97,16 @@ class RefModule:
         return self.local_seq
 
     async def send(self, msg):
+        """ACK/PROGRESS/RESULT ride the same ring buffer as telemetry:
+        if the hub is down mid-run, the run finishes here and the messages
+        land after the hub comes back (at-least-once on reconnect)."""
+        self.ring.append(msg)
         if self.writer:
-            self.writer.write(encode(msg))
-            await self.writer.drain()
+            try:
+                self.writer.write(encode(msg))
+                await self.writer.drain()
+            except (ConnectionResetError, BrokenPipeError, OSError):
+                self.writer = None
 
     # -- command execution --------------------------------------------------------
 
@@ -165,8 +172,15 @@ class RefModule:
                          {"name": "detector_raw", "unit": "V"}],
             "commands": [
                 {"type": "calibrate", "risk": "disruptive",
-                 "params": {"std_conc": "mg/L of the standard"}},
-                {"type": "sample", "risk": "routine"},
+                 "params": {"std_conc": {"type": "number", "required": True,
+                                         "max": 1000, "unit": "mg/L",
+                                         "doc": "concentration of the standard; "
+                                                "module enforces > 0"}},
+                 "preconditions": ["state:idle"],
+                 "typical_duration_s": TIMELINES["calibrate"]["total"] / self.speed},
+                {"type": "sample", "risk": "routine",
+                 "preconditions": ["state:idle"],
+                 "typical_duration_s": TIMELINES["sample"]["total"] / self.speed},
                 {"type": "abort", "risk": "routine"},
             ],
             "health_interval_s": 60 / self.speed,
