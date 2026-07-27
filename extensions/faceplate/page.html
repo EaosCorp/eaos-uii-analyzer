@@ -122,7 +122,7 @@ function tick(env){
   if(env.kind==="progress"&&src.module){progress[src.module]=d.pct||0;}
   if(env.kind==="result"&&src.module){progress[src.module]=0;}
   const line=document.createElement("div");
-  const what=d.event||d.status||d.message||(d.value!=null?d.value+" "+(d.unit||""):env.kind);
+  const what=d.event||d.status||d.message||(d.value!=null?d.value+" "+(d.unit||""):(d.name?d.name+"="+(d.vin!=null?d.vin+"V":""):env.kind));
   line.innerHTML=`<span class="k">${env.kind}</span>${src.module||"hub"} · ${String(what).slice(0,90)}`;
   const t=$("ticker"); t.prepend(line);
   while(t.children.length>40)t.removeChild(t.lastChild);
