@@ -106,7 +106,7 @@ class EvidenceStore:
               command_id: Optional[str] = None,
               correlation_id: Optional[str] = None, since_seq: int = 0,
               since_time: Optional[str] = None, until_time: Optional[str] = None,
-              limit: int = 200) -> list[dict]:
+              descending: bool = False, limit: int = 200) -> list[dict]:
         sql, args = "SELECT body FROM envelopes WHERE seq>?", [since_seq]
         if kind:
             kinds = kind.split(",")
@@ -130,7 +130,7 @@ class EvidenceStore:
         if until_time:
             sql += " AND time<=?"
             args.append(until_time)
-        sql += " ORDER BY seq LIMIT ?"
+        sql += " ORDER BY seq DESC LIMIT ?" if descending else " ORDER BY seq LIMIT ?"
         args.append(min(limit, 5000))
         return [json.loads(r[0]) for r in self._db.execute(sql, args)]
 
