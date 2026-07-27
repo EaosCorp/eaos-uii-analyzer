@@ -51,7 +51,10 @@ Exit codes: 0 ok · 2 command rejected · 3 failed. `--json` on any verb.
 Base URL: `--hub` or `$UII_HUB_URL` (default `http://127.0.0.1:8400`).
 
 * You are an actor: identify yourself (`--actor agent:<name>@<where>`).
-  Your commands carry `trace.actor` and are audited.
+  Your commands carry `trace.actor` and are audited. On a **locked** hub
+  (`/v1/system` shows `auth: token`) pass `--token`/`$UII_TOKEN`; your
+  identity is the token's mapping and `--actor` is ignored — do not
+  attempt to present as a human, it does not work and it is audited.
 * Authority is ENFORCED, not honor-system: as an `agent:*` actor you run
   `routine` commands alone; a `disruptive` command (calibrate,
   take_control, bridge) returns `approval_required` + an approval id — tell

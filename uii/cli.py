@@ -41,15 +41,26 @@ import urllib.error
 import urllib.request
 
 
+_TOKEN = None   # set by --token / $UII_TOKEN; locked hubs require it
+
+
+def _headers(extra=None) -> dict:
+    h = dict(extra or {})
+    if _TOKEN:
+        h["Authorization"] = f"Bearer {_TOKEN}"
+    return h
+
+
 def _get(base: str, path: str) -> dict:
-    with urllib.request.urlopen(base + path, timeout=30) as r:
+    req = urllib.request.Request(base + path, headers=_headers())
+    with urllib.request.urlopen(req, timeout=30) as r:
         return json.loads(r.read())
 
 
 def _post(base: str, path: str, body: dict) -> tuple[int, dict]:
     req = urllib.request.Request(
         base + path, data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json"}, method="POST")
+        headers=_headers({"Content-Type": "application/json"}), method="POST")
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             return r.status, json.loads(r.read())
@@ -77,6 +88,9 @@ def main(argv=None):
     p = argparse.ArgumentParser(prog="uii", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--hub", default=None, help="hub API base URL")
+    p.add_argument("--token", default=None,
+                   help="bearer token (or $UII_TOKEN) — locked hubs derive "
+                        "your identity from this, not from --actor")
     p.add_argument("--json", action="store_true",
                    help="machine-readable output (any verb)")
     sub = p.add_subparsers(dest="verb", required=True)
@@ -114,9 +128,10 @@ def main(argv=None):
     s = sub.add_parser("lineage"); s.add_argument("id")
 
     a = p.parse_args(argv)
-    global _JSON
+    global _JSON, _TOKEN
     _JSON = a.json
     import os
+    _TOKEN = a.token or os.environ.get("UII_TOKEN")
     base = a.hub or os.environ.get("UII_HUB_URL", "http://127.0.0.1:8400")
 
     if a.verb == "system":
@@ -211,7 +226,8 @@ def main(argv=None):
         req = urllib.request.Request(
             base + "/v1/exports",
             data=json.dumps({k: v for k, v in body.items() if v}).encode(),
-            headers={"Content-Type": "application/json"}, method="POST")
+            headers=_headers({"Content-Type": "application/json"}),
+            method="POST")
         with urllib.request.urlopen(req, timeout=120) as r:
             blob = r.read()
             count = r.headers.get("X-UII-Bundle-Count", "?")
@@ -248,8 +264,9 @@ def main(argv=None):
 
     elif a.verb == "watch":
         qs = f"?kind={a.kind}" if a.kind else ""
-        req = urllib.request.Request(base + "/v1/events" + qs,
-                                     headers={"Accept": "text/event-stream"})
+        req = urllib.request.Request(
+            base + "/v1/events" + qs,
+            headers=_headers({"Accept": "text/event-stream"}))
         with urllib.request.urlopen(req, timeout=3600) as r:
             for raw in r:
                 line = raw.decode().rstrip()

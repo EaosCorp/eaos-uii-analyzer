@@ -74,6 +74,15 @@ class HubConfig:
         self.authority: dict = raw.get("authority") or {}
         self.path_ceilings: dict = raw.get("path_ceilings") or {}
 
+        # credentials: token -> actor. EMPTY = open bench mode (callers
+        # self-declare actors — fine on an air-gapped bench, never in the
+        # field). NON-EMPTY = locked mode: every API request needs a valid
+        # bearer token and the actor IS the token's mapping — a caller
+        # cannot claim to be someone else, and "human" means "holds a
+        # user:* credential". Production ladder: these tokens -> mTLS /
+        # OAuth2 client-credentials (spec §10), same actor mapping.
+        self.credentials: dict = raw.get("credentials") or {}
+
         self.data_dir: str = os.environ.get(
             "UII_DATA", raw.get("data_dir", "./data"))
         self._trust_path = os.path.join(self.data_dir, "trust.json")

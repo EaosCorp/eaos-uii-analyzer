@@ -69,6 +69,23 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
             self.end_headers()
             self.wfile.write(body)
 
+        def _auth(self):
+            """Returns (actor, ok). Open mode (no credentials configured):
+            (None, True) — callers self-declare. Locked mode: the actor IS
+            the bearer token's mapping; identity cannot be claimed."""
+            creds = southbound.config.credentials
+            if not creds:
+                return None, True
+            tok = self.headers.get("Authorization", "")
+            if tok.lower().startswith("bearer "):
+                tok = tok[7:]
+            actor = creds.get(tok.strip())
+            if not actor:
+                self._problem(401, "urn:uii:problem:unauthorized",
+                              "valid bearer token required (locked mode)")
+                return None, False
+            return actor, True
+
         def _module_rows(self):
             live = {}
             for s in list(southbound.sessions.values()) + list(southbound.quarantined.values()):
@@ -87,6 +104,9 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
         # -- routes ------------------------------------------------------
 
         def do_GET(self):
+            _actor, ok = self._auth()
+            if not ok:
+                return
             url = urlparse(self.path)
             q = {k: v[0] for k, v in parse_qs(url.query).items()}
             path = url.path
@@ -94,6 +114,7 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
             if path == "/v1/system":
                 return self._json({
                     "hub": store.hub_id, "uii": "0.2",
+                    "auth": "token" if southbound.config.credentials else "open",
                     "time": now_iso(), "uptime_s": int(time.time() - START),
                     "modules_operational": len(southbound.sessions),
                     "modules_quarantined": len(southbound.quarantined)})
@@ -178,6 +199,9 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
             return self._problem(404, "urn:uii:problem:not-found", path)
 
         def do_POST(self):
+            auth_actor, ok = self._auth()
+            if not ok:
+                return
             url = urlparse(self.path)
 
             m = re.fullmatch(r"/v1/modules/([\w-]+)/release", url.path)
@@ -187,7 +211,7 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
                     return self._problem(404, "urn:uii:problem:not-found",
                                          f"no quarantined module '{m.group(1)}'")
                 fut = asyncio.run_coroutine_threadsafe(
-                    session.release(actor="user:api"), loop)
+                    session.release(actor=auth_actor or "user:api"), loop)
                 fut.result(timeout=5)
                 return self._json({"released": m.group(1),
                                    "serial_trusted": session.serial}, 200)
@@ -205,7 +229,8 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
                     return self._problem(400, "urn:uii:problem:validation",
                                          "decision must be approve|deny")
                 summary, problem = gateway.decide_approval(
-                    m.group(1), decision, body.get("actor", "user:api"))
+                    m.group(1), decision,
+                    auth_actor or body.get("actor", "user:api"))
                 if problem:
                     code = 404 if problem["type"].endswith("not-found") else 403
                     return self._problem(code, problem["type"], problem["detail"])
@@ -225,7 +250,7 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
                               "filters": manifest["filters"],
                               "count": manifest["count"]},
                              "urn:uii:schema:audit:0.1",
-                             actor=filters.get("actor", "user:api"))
+                             actor=auth_actor or filters.get("actor", "user:api"))
                 self.send_response(200)
                 self.send_header("Content-Type", "application/gzip")
                 self.send_header("Content-Length", str(len(blob)))
@@ -242,7 +267,7 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
                     return self._problem(400, "urn:uii:problem:validation",
                                          "invalid JSON")
                 ok = detections.ack(body.get("rule", ""), body.get("module", ""),
-                                    actor=body.get("actor", "user:api"))
+                                    actor=auth_actor or body.get("actor", "user:api"))
                 if not ok:
                     return self._problem(404, "urn:uii:problem:not-found",
                                          "no such active un-acked alert")
@@ -263,9 +288,12 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
             # ingress is "local" for the on-hub API; when the OT/cloud/
             # cellular listeners exist, each stamps its own path here and
             # authority.py's ceilings take effect per path
+            # locked mode: identity comes from the credential, never the
+            # body — a caller cannot claim to be someone else
             env, problem = gateway.submit(
                 module, body["type"], body.get("params"),
-                actor=body.get("actor", "user:local"), ingress="local",
+                actor=auth_actor or body.get("actor", "user:local"),
+                ingress="local",
                 idempotency_key=self.headers.get("Idempotency-Key"))
             if problem:
                 return self._problem(422, problem["type"], problem["detail"])

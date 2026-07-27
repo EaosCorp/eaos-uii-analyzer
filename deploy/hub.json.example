@@ -12,6 +12,7 @@
       "auto_calibrate": false
     }
   },
+  "credentials": {},
   "authority": {
     "user": "disruptive",
     "agent": "routine",

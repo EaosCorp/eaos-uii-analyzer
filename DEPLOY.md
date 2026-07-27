@@ -27,6 +27,23 @@ sudo ./deploy/install.sh --with-hw      # /opt/uii, /etc/uii, /var/lib/uii
 
 Edit the two config files:
 
+**Lock the hub before it leaves the bench.** The example config ships with
+`"credentials": {}` = open bench mode (self-declared actors — fine
+air-gapped, never plant-connected). To lock, add real tokens, one per
+person and one per agent process:
+
+```json
+"credentials": {
+  "<openssl rand -hex 24>": "user:yourname",
+  "<openssl rand -hex 24>": "agent:eddy-om@site"
+}
+```
+
+With credentials present, every API/CLI call needs `--token` (or
+`$UII_TOKEN`), identity comes from the token (claimed actors are ignored),
+and approving a risk-gated command requires a `user:*` token. Verify with
+`uii --token <t> system` → `"auth": "token"`.
+
 * `/etc/uii/pimod.env` — copy the values from however the legacy gateway is
   launched today (`ANALYTE`, `PORT_A`, `PORT_B`, `BAUD`, `ADC_*` are the same
   variable names). Set `UII_SERIAL` to something permanent for this physical

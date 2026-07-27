@@ -80,6 +80,8 @@ swap, evidence, alerts, scheduling, and the agent surface come for free.**
 
 ## 3. The evidence model
 
+Nothing leaves the device as a bare number: every fact is one canonical
+record carrying source identity, timestamp, quality, unit, and provenance.
 Every fact is an envelope: `id` (UUIDv7), per-hub gap-free `sequence`,
 `kind` (closed set: observation, state, event, command, ack, progress,
 result, calibration, health, identity, config, audit …), `source`
@@ -253,12 +255,36 @@ regardless of credential). Today every API request is stamped `local`; the
 listener for each future path (OT tags, northbound, cellular) stamps its
 own, and the ceilings take effect with zero gateway changes.
 
-The approval flow is evidence end to end: `audit{approval-pending}` →
-`audit{approval-granted|denied}` (approver must be human, never the
-requester) → dispatch or terminal `result{rejected|expired}`. Pending
-approvals live at `/v1/approvals`; `uii approve <id>` is one call.
-Idempotency keys on submission make agent retries safe (a retried command
-returns the original ack instead of running twice).
+The gateway's verbs are exactly three — **validate, reject, or defer** — and
+every outcome is written back as evidence with lineage to the input, the
+actor involved, the approval status, and the time of write-back. The
+approval flow: `audit{approval-pending}` → `audit{approval-granted|denied}`
+(approver must be human, never the requester) → dispatch or terminal
+`result{rejected|expired}`. Pending approvals live at `/v1/approvals`;
+`uii approve <id>` is one call. Idempotency keys on submission make agent
+retries safe (a retried command returns the original ack instead of
+running twice).
+
+**Actor authenticity — how the hub knows a "human" is real.** Authority is
+only as strong as identity, so the two modes are explicit:
+
+* **Open bench mode** (no `credentials` configured): actors are
+  self-declared. Fine on an air-gapped bench; never in the field.
+  `/v1/system` reports `auth: open` so nobody can mistake which mode
+  they're in.
+* **Locked mode** (`credentials` in hub.json: token → actor): every API
+  request requires a bearer token, and the actor IS the token's mapping —
+  a body-supplied actor string is ignored. An agent cannot claim to be a
+  person, and "human approval" means *a `user:*` credential was
+  presented*, not *a request said so*. Tested: a spoofed actor in the
+  request body neither elevates a command nor approves one.
+
+The honest boundary: authenticity reduces to credential possession, so
+user tokens are keys — issue one per person, never share them with agent
+processes. The production ladder from here (spec §10): per-device mTLS /
+OAuth2 client-credentials mapping to the same actor strings, per-user
+roles (viewer/operator/maintainer/engineer), and a physical-presence
+second factor for `hazardous` commands.
 
 Zones, unchanged: the module LAN is private and unrouted; modules never
 listen, never reach the WAN, and only ever see pre-validated commands. OT
