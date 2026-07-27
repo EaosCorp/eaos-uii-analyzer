@@ -39,9 +39,13 @@ it's working code parked one layer up so the core stays reviewable.
 
 ```bash
 python3 demo.py                               # the core seam, ~20 s, DEMO OK
-python3 -m unittest discover -t . -s tests    # core tests (all 56 on staged)
-python3 demo_full.py                          # staged branch: everything, ~90 s
+python3 -m unittest discover -t . -s tests    # the core suite (~25 s)
 ```
+
+Want to drive it yourself instead of watching a demo? **`BENCH.md`** is a
+15-minute hands-on session: plug in, discover commands, try to break the
+gate, run the chemistry, swap a unit, quarantine an impostor, kill the hub
+mid-run. (`demo_full.py` on the staged branch runs everything at once.)
 
 Or by hand:
 
@@ -91,6 +95,9 @@ of how this grows. Details and sequencing: **`docs/ROADMAP.md`**.
 - **`docs/ROADMAP.md`** — every staged and planned piece, in order
 - `docs/detections.md` · `docs/agent-interface.md` — deep design docs for
   those extensions (research grounding included)
+- **`BENCH.md`** — the hands-on walkthrough (start here after the demo)
+- `tools/legacy-shim.md` — topic-by-topic mapping from the legacy NH4MOD
+  MQTT gateway to this system
 - `AGENTS.md` — operating contract for AI agents · `DEPLOY.md` (staged
   branch) — field cutover runbook (real Pi, one-command rollback)
 - Internal spec lineage: `eaos-vault/06-technical/architecture/instrument-interface/`
