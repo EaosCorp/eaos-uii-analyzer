@@ -13,7 +13,8 @@ the live API — read it top to bottom next to the code:
     -> uii/hub/commands.py -> uii/refmod.py -> this file
 
 For the full staged build (scheduler, detections/NE107, authority +
-approvals, exports, the NH4MOD field agent): python3 demo_full.py
+approvals, exports, the NH4MOD field agent): the `staged` branch,
+python3 demo_full.py
 """
 from __future__ import annotations
 

@@ -27,13 +27,20 @@ one config flag away, and each one demonstrates an extension hook you
 could use for something else. Nothing here is speculative scaffolding;
 it's working code parked one layer up so the core stays reviewable.
 
+## Branches
+
+- **`main`** (you are probably here) — the core: the read order below, the
+  core tests, the 20-second demo.
+- **`staged`** — `main` plus the five extensions, their tests,
+  `demo_full.py`, and the field deploy pack (`DEPLOY.md`, systemd units).
+  Same code review rules; merges from `main` are additive-only.
+
 ## Run it (Python 3.10+, stdlib only, no install)
 
 ```bash
 python3 demo.py                               # the core seam, ~20 s, DEMO OK
-python3 -m unittest discover -t . -s tests/core        # core: 12 tests
-python3 demo_full.py                          # everything enabled, ~90 s
-python3 -m unittest discover -t . -s tests    # all 56 tests, ~50 s
+python3 -m unittest discover -t . -s tests    # core tests (all 56 on staged)
+python3 demo_full.py                          # staged branch: everything, ~90 s
 ```
 
 Or by hand:
