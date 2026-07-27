@@ -83,16 +83,16 @@ support, regulatory packages, refurb history, agent context.*
    store-and-forward from the log (the log IS the outbox), resumable by
    sequence; severity-based routing for alerts. This is where any consumer
    of the legacy `tele/#` topics lands.
-3b. **Faceplate (local screen)** — one static HTML page served by the hub
-   (kiosk on the unit or any LAN tablet): latest values with quality +
-   permitted-use, NE107 status, run progress, active alerts — plus a
-   small CURATED button row (config-driven per role, e.g. prime/sample/
-   ack) that submits through the one gate under its own actor identity
-   (`user:panel@…`) and a `panel` ingress ceiling. Deliberately never the
-   main interface: buttons render only from the role's allowlist, the
-   ceiling is enforced server-side, and the parity rule (nothing exists
-   only on the panel) makes it structurally a subset. Later: the panel as
-   the physical-presence second factor for hazardous approvals.
+3b. **Faceplate command buttons** — the read-only faceplate is BUILT
+   (staged: `extensions/faceplate/`, one route + one page at `/faceplate`,
+   Eaos dark tokens, SSE-live). Next: the small CURATED button row
+   (config-driven per role, e.g. prime/sample/ack) submitting through the
+   one gate under its own actor identity (`user:panel@…`) and a `panel`
+   ingress ceiling. Deliberately never the main interface: buttons render
+   only from the role's allowlist, the ceiling is enforced server-side,
+   and the parity rule (nothing exists only on the panel) makes it
+   structurally a subset. Later: the panel as the physical-presence
+   second factor for hazardous approvals.
 3c. **Chart-ready observations** — windowed/downsampled query
    (`/v1/observations?bucket=15m&since=7d`) so agents and UIs pull
    render-ready series instead of raw envelopes.
