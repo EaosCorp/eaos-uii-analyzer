@@ -1,17 +1,25 @@
 """uii — CLI mirroring the /v1 API one-to-one (spec §9 subset). Stdlib only.
 
+Agent contract: every verb supports --json (structured stdout, stable
+field names); exit codes are meaningful (0 ok · 2 rejected · 3 failed);
+errors go to stderr. Humans get tables, agents get JSON — same commands.
+
   uii system                          hub identity + counts
   uii modules                         every module the hub knows, all states
   uii roles                           role registry + occupancy
   uii obs [--channel nh4]             latest observations (faceplate)
   uii cal [--module m]                latest calibrations
   uii cmd TYPE --module M [--param k=v ...] [--watch]
+  uii alerts                          active detections (severity, NE107)
+  uii ack RULE --module M             acknowledge an active alert (audited)
+  uii health                          per-module NE107 status rollup
   uii release MODULE                  release a quarantined module (logged)
   uii watch [--kind observation,event]  tail the SSE stream
   uii evidence [--kind k] [--module m] [--limit n]
   uii lineage EVIDENCE_ID             causal graph around one record
 
   --hub URL (default $UII_HUB_URL or http://127.0.0.1:8400)
+  --json    machine output on any verb
 
 Exit codes: 0 ok · 2 rejected · 3 failed.
 """
@@ -40,7 +48,13 @@ def _post(base: str, path: str, body: dict) -> tuple[int, dict]:
         return e.code, json.loads(e.read() or b"{}")
 
 
+_JSON = False   # set by --json: agents get structure, humans get tables
+
+
 def _table(rows: list[dict], cols: list[str]):
+    if _JSON:
+        print(json.dumps({"items": rows}, indent=2))
+        return
     if not rows:
         print("(none)")
         return
@@ -54,6 +68,8 @@ def main(argv=None):
     p = argparse.ArgumentParser(prog="uii", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--hub", default=None, help="hub API base URL")
+    p.add_argument("--json", action="store_true",
+                   help="machine-readable output (any verb)")
     sub = p.add_subparsers(dest="verb", required=True)
 
     sub.add_parser("system")
@@ -65,6 +81,10 @@ def main(argv=None):
     s.add_argument("type"); s.add_argument("--module", required=True)
     s.add_argument("--param", action="append", default=[])
     s.add_argument("--watch", action="store_true")
+    sub.add_parser("alerts")
+    sub.add_parser("health")
+    s = sub.add_parser("ack")
+    s.add_argument("rule"); s.add_argument("--module", required=True)
     s = sub.add_parser("release"); s.add_argument("module")
     s = sub.add_parser("watch"); s.add_argument("--kind")
     s = sub.add_parser("evidence")
@@ -73,6 +93,8 @@ def main(argv=None):
     s = sub.add_parser("lineage"); s.add_argument("id")
 
     a = p.parse_args(argv)
+    global _JSON
+    _JSON = a.json
     import os
     base = a.hub or os.environ.get("UII_HUB_URL", "http://127.0.0.1:8400")
 
@@ -101,9 +123,13 @@ def main(argv=None):
 
     elif a.verb == "cal":
         path = "/v1/calibrations" + (f"?module={a.module}" if a.module else "")
-        for c in _get(base, path)["items"]:
-            print(f"{c['source']['module']}  {c['data']['analyte']}  "
-                  f"std={c['data']['std_conc_mgL']}  fit={c['data']['fit']}  {c['time']}")
+        items = _get(base, path)["items"]
+        if _JSON:
+            print(json.dumps({"items": items}, indent=2))
+        else:
+            for c in items:
+                print(f"{c['source']['module']}  {c['data']['analyte']}  "
+                      f"std={c['data']['std_conc_mgL']}  fit={c['data']['fit']}  {c['time']}")
 
     elif a.verb == "cmd":
         params = {}
@@ -137,6 +163,23 @@ def main(argv=None):
                 _t.sleep(1)
         return 0
 
+    elif a.verb == "alerts":
+        _table(_get(base, "/v1/alerts")["items"],
+               ["rule", "module", "severity", "ne107", "value", "acked",
+                "since_s_ago", "message"])
+
+    elif a.verb == "health":
+        rows = [{"id": m["id"], "state": m["state"], "status": m["status"],
+                 "alerts": ", ".join(al["rule"] for al in m["alerts"]) or "-"}
+                for m in _get(base, "/v1/health")["modules"]]
+        _table(rows, ["id", "state", "status", "alerts"])
+
+    elif a.verb == "ack":
+        code, resp = _post(base, "/v1/alerts/ack",
+                           {"rule": a.rule, "module": a.module})
+        print(json.dumps(resp, indent=2))
+        return 0 if code == 200 else 3
+
     elif a.verb == "release":
         code, resp = _post(base, f"/v1/modules/{a.module}/release", {})
         print(json.dumps(resp, indent=2))
@@ -163,11 +206,15 @@ def main(argv=None):
             qs.append(f"kind={a.kind}")
         if a.module:
             qs.append(f"module={a.module}")
-        for env in _get(base, "/v1/evidence?" + "&".join(qs))["items"]:
-            src = env.get("source") or {}
-            print(f"{env['sequence']:>6} {env['kind']:<12} "
-                  f"{src.get('module') or '-':<14} {env['id']}  "
-                  f"{json.dumps(env.get('data'))[:100]}")
+        items = _get(base, "/v1/evidence?" + "&".join(qs))["items"]
+        if _JSON:
+            print(json.dumps({"items": items}, indent=2))
+        else:
+            for env in items:
+                src = env.get("source") or {}
+                print(f"{env['sequence']:>6} {env['kind']:<12} "
+                      f"{src.get('module') or '-':<14} {env['id']}  "
+                      f"{json.dumps(env.get('data'))[:100]}")
 
     elif a.verb == "lineage":
         print(json.dumps(_get(base, f"/v1/evidence/{a.id}/lineage"), indent=2))

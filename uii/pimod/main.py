@@ -331,6 +331,12 @@ class PiModule:
         conc_channels = {"NH4": ["nh4"], "PO4": ["po4"],
                          "NOX": ["nox", "no2", "no3"]}[self.analyte]
         return {
+            # instrument-class selects the hub-side profile: which
+            # interpreter runs on results, which detections make sense.
+            # A foam camera would declare "vision", a centrifuge "rotating";
+            # the UII core (adoption, evidence, health, commands) is
+            # identical for all classes.
+            "instrument_class": "chemical-analyzer",
             "analyte": self.analyte,
             "method": {"id": f"{self.analyte.lower()}-colorimetric-field",
                        "version": "1.0.0"},

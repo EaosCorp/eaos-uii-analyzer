@@ -132,6 +132,15 @@ def main():
                            "calibrate_std_conc": 5.0,
                            "auto_take_control": True, "auto_calibrate": True},
             },
+            "detections": [
+                {"id": "nh4-stale", "type": "stale_data", "channel": "nh4",
+                 "role": "nh4-influent", "window_s": 3000,
+                 "severity": "warning", "message": "no fresh NH4 data"},
+                {"id": "nh4-high", "type": "threshold", "channel": "nh4",
+                 "raise_above": 12.0, "clear_below": 10.0, "severity": "alert",
+                 "suppress_in_states": ["priming", "calibrating"],
+                 "message": "NH4 above 12 mg/L"},
+            ],
         }, f)
 
     os.environ.pop("UII_HUB_ID", None); os.environ.pop("UII_ALLOWED", None)
@@ -166,6 +175,11 @@ def main():
                        timeout=90, what="first scheduled sample")
         print(f"    sampling on cadence: nh4 = {obs['data']['value']} mg/L [good] "
               f"— bam, ready. total {time.time()-t_plug:.0f}s from plug-in")
+        wait_for(lambda: not get(base, "/v1/alerts")["items"],
+                 timeout=15, what="clean alert board")
+        health = get(base, "/v1/health")["modules"][0]
+        print(f"    hub self-status (NE107 rollup): {health['status']}, "
+              f"alert board clean")
 
         # -- 3: quarantine + one-call release ---------------------------------
         procs.append(spawn_module(hub.sb_port, "vendor-x-01", "slot-9",
@@ -187,6 +201,12 @@ def main():
         vacancy = get(base, "/v1/evidence?kind=event&limit=500")["items"]
         assert any(e["data"].get("event") == "role-vacant" for e in vacancy)
         print("    hub: REMOVED -> role 'nh4-influent' vacant (event logged)")
+        alert = wait_for(lambda: next(
+            (a for a in get(base, "/v1/alerts")["items"]
+             if a["rule"] == "nh4-stale"), None),
+            timeout=30, what="stale-data detection")
+        print(f"    DETECTION fired on its own: [{alert['severity']}] "
+              f"\"{alert['message']}\" (NE107: {alert['ne107']})")
 
         t_swap = time.time()
         procs.append(spawn_module(hub.sb_port, "nh4mod-b", "slot-1",
@@ -202,6 +222,9 @@ def main():
         print(f"    re-calibrated (slope={cal_b['data']['fit']['slope']:.3f}) and "
               f"sampling: nh4 = {obs['data']['value']} mg/L — swap to good data "
               f"in {time.time()-t_swap:.0f}s, keyboard untouched")
+        wait_for(lambda: not get(base, "/v1/alerts")["items"],
+                 timeout=30, what="stale alert cleared by fresh data")
+        print("    fresh data cleared the stale-data alert on its own")
 
         # -- 5: evidence ---------------------------------------------------------
         lin = get(base, f"/v1/evidence/{obs['id']}/lineage")

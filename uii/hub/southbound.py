@@ -267,10 +267,16 @@ class ModuleSession:
         if msg.get("status") != "succeeded" or not cmd:
             return
 
-        # Interpretation happens on the hub (architecture §3): the module
-        # returned named raw captures; calibration fits and concentrations
-        # are computed here so every derived value carries calibration_id
-        # + raw_refs lineage and stays recomputable.
+        # Interpretation happens on the hub (architecture §3), and WHICH
+        # interpreter runs is selected by the module's declared
+        # instrument_class — this is the seam between the universal core
+        # and class profiles. Only the chemical-analyzer profile exists
+        # today (raw captures -> calibration fit -> concentration); a
+        # vision or rotating-equipment class would register its own
+        # result interpreter here and reuse everything else unchanged.
+        if self.manifest.get("instrument_class",
+                             "chemical-analyzer") != "chemical-analyzer":
+            return
         cmd_type = (cmd.get("data") or {}).get("type")
         outputs = msg.get("data") or {}
         captures = outputs.get("captures") or {}

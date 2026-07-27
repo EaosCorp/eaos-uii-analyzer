@@ -1,16 +1,33 @@
-# uii — Universal Instrument Interface
+# eaos-uii-analyzer
 
-Working code for the AI-ready sensor platform: the **hub** (evidence core,
-southbound gateway, command gateway, scheduler, HTTP+SSE API, CLI) and
-**pimod**, the module agent that runs on the real NH4MOD Raspberry Pi —
-split-PLC serial bridge, the deployed ST9 method timelines (NH4/NOX/PO4),
-and ADS1115 detector capture, speaking the UII southbound protocol. With
+The chemical-analyzer implementation of Eaos's **Universal Instrument
+Interface (UII)** — the product line covering **LoaD (Lab-on-a-Desk)**, the
+**Jarbalyzer**, and the field NH4MOD retrofit that precedes them.
+
+Two layers, deliberately separated (see `docs/architecture.md` §2):
+
+* **Universal core** — identity/adoption, evidence envelopes, command
+  lifecycle, health supervision, configurable detections with NE107 status
+  rollup, role-attached scheduling, `/v1` API + SSE, CLI, agent surface.
+  The same core will carry vision modules (foam-detection cameras) and
+  rotating equipment (centrifuges, pumps); a module declares its
+  `instrument_class` and the core doesn't care.
+* **Chemical-analyzer profile** (this repo's name) — method timelines,
+  calibration fits, concentrations, reagent/cal detections.
+
+In here: the **hub** (evidence core, southbound gateway, command gateway,
+scheduler, detections, HTTP+SSE API, CLI) and **pimod**, the module agent
+that runs on the real NH4MOD Raspberry Pi — split-PLC serial bridge, the
+deployed ST9 method timelines (NH4/NOX/PO4), ADS1115 detector capture. With
 `UII_SIM=1` the *same* agent runs anywhere on synthetic detector physics,
 so the software bench exercises exactly the code that ships.
 
-Spec + architecture: `eaos-vault/06-technical/architecture/instrument-interface/`
-(`uii-spec.md`, `uii-reference-architecture.md`, `migration-playbook.md`).
-Deploying to the real Pi: **`DEPLOY.md`**.
+Docs: **`docs/architecture.md`** (system design) ·
+**`docs/detections.md`** (hub self-monitoring: alerts, NE107, roadmap) ·
+**`docs/agent-interface.md`** (exposure to AI agents) ·
+**`AGENTS.md`** (agent operating contract) ·
+**`DEPLOY.md`** (field cutover runbook).
+Internal spec lineage: `eaos-vault/06-technical/architecture/instrument-interface/`.
 
 ## The headline behavior: auto-recognize → bam, ready
 
@@ -30,14 +47,23 @@ compatible unit into the slot and the role is restored onto it (config
 follows the **slot**, history follows the **serial**). Every transition is
 an identity envelope, so the swap history *is* the evidence log.
 
+And the hub watches itself: **detections** configured in `hub.json`
+(thresholds with hysteresis + debounce, stale data, cal overdue, health
+flags, quality streaks) run continuously over the evidence stream, come
+back out as evidence, are acknowledgeable (`uii ack`, audited), suppressed
+by design during priming/calibration, and roll up to one NAMUR NE107-style
+status per module (`uii health`). Design + roadmap: `docs/detections.md`.
+
 ## Run it
 
 ```bash
-python3 demo.py            # the whole story at 300x, ~60 s, exits DEMO OK
-                           # adoption -> hands-off to good data -> quarantine
-                           # + release -> SWAP DRILL -> lineage + chain verify
+python3 demo.py            # the whole story at 300x, ~70 s, exits DEMO OK
+                           # adoption -> hands-off to good data -> NE107 ok ->
+                           # quarantine + release -> SWAP DRILL (with the
+                           # stale-data detection firing and self-clearing)
+                           # -> lineage + hash-chain verify
 
-python3 -m unittest discover -t . -s tests    # 21 tests, ~30 s
+python3 -m unittest discover -t . -s tests    # 33 tests, ~60 s
 ```
 
 Or by hand:
@@ -70,8 +96,11 @@ uii/hub/interpret.py     hub-side chemistry math, ported verbatim from the
                          slope*A - intercept, NOX 3-fit + NO3 validity
 uii/hub/commands.py      command gateway: validation before any module sees it
 uii/hub/scheduler.py     role-attached cadence: control -> cal gate -> samples
-uii/hub/api.py           /v1 REST + SSE (modules, roles, release, evidence…)
-uii/cli.py               `uii` CLI mirroring the API (spec §9 subset)
+uii/hub/detections.py    configurable status engine: alerts as evidence,
+                         hysteresis/debounce/suppression, NE107 rollup
+uii/hub/api.py           /v1 REST + SSE (modules, roles, alerts, health,
+                         release, evidence…)
+uii/cli.py               `uii` CLI mirroring the API; --json on every verb
 uii/pimod/main.py        THE MODULE AGENT for the real Pi: BRIDGE/ENDPOINT
                          split-PLC modes, timeline engine, ring buffer, redial
 uii/pimod/timelines.py   ST9 tables + prime/calibrate/sample event tables,
@@ -80,8 +109,11 @@ uii/pimod/hw.py          real serial/ADS1115 + simulated hardware (hidden-
                          truth detector physics)
 demo.py                  end-to-end proof, exits DEMO OK
 tests/                   unittest suite (interpret math, evidence chain,
-                         adoption, swap drill, manual path, PLC bridge)
+                         adoption, swap drill, manual path, PLC bridge,
+                         detections mechanics + live alerting)
 deploy/                  install.sh, systemd units, config examples
+docs/                    architecture.md · detections.md · agent-interface.md
+AGENTS.md                operating contract for AI agents
 tools/legacy-shim.md     mapping from the legacy NH4MOD MQTT gateway
 DEPLOY.md                runbook for putting this on the real Pi
 ```
@@ -103,9 +135,12 @@ DEPLOY.md                runbook for putting this on the real Pi
   through the agent untouched (every line logged); ENDPOINT is latched
   exactly like the field gateway's latch.
 
-## Not yet here (tracked in the playbook)
+## Not yet here (tracked in docs/ and the playbook)
 
 CBOR framing · secure-element challenge-response (v0 trusts allowlist +
 released serials) · role-by-switch-port (v0: module declares its slot) ·
 risk classes/RBAC · MQTT northbound publisher · OT adapter (PLC result
-tags) · retention · signed updates · time sync (TIME message).
+tags + NE107 status word) · retention · signed updates · time sync ·
+alarm shelving/OOS/flood controls · Westgard QC + drift detections ·
+vision and rotating instrument-class profiles · MCP server + `uii fs`
+filesystem projection (see docs/agent-interface.md).

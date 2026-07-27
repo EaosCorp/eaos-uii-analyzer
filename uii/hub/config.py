@@ -65,6 +65,10 @@ class HubConfig:
             cfg.setdefault("role", f"role-{slot}")
             self.roles[slot] = cfg
 
+        # detections: configurable status rules the hub evaluates over the
+        # evidence stream (see uii/hub/detections.py, docs/detections.md)
+        self.detections: list[dict] = raw.get("detections") or []
+
         self.data_dir: str = os.environ.get(
             "UII_DATA", raw.get("data_dir", "./data"))
         self._trust_path = os.path.join(self.data_dir, "trust.json")

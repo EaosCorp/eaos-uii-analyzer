@@ -21,6 +21,7 @@ from typing import Optional
 from .api import serve_api
 from .commands import CommandGateway
 from .config import HubConfig
+from .detections import Detections
 from .evidence import EvidenceStore
 from .scheduler import Scheduler
 from .southbound import SouthboundHub
@@ -41,6 +42,8 @@ class Hub:
         self.gateway = CommandGateway(self.store, self.southbound, self.loop)
         self.scheduler = Scheduler(self.store, self.southbound, self.gateway,
                                    speed=speed)
+        self.detections = Detections(self.store, self.southbound,
+                                     self.config.detections, speed=speed)
         self._sb_port_req = sb_port
         self._api_port_req = api_port
         self.api_server = None
@@ -55,9 +58,11 @@ class Hub:
         self._thread.start()
         self._ready.wait(timeout=10)
         self.api_server = serve_api(self.store, self.southbound, self.gateway,
-                                    self.loop, "0.0.0.0", self._api_port_req)
+                                    self.detections, self.loop,
+                                    "0.0.0.0", self._api_port_req)
         self.api_port = self.api_server.server_address[1]
         self.scheduler.start()
+        self.detections.start()
         self.store.append("event",
                           {"event": "hub-started", "api_port": self.api_port,
                            "southbound_port": self.sb_port},
@@ -95,6 +100,7 @@ class Hub:
 
     def stop(self):
         self.scheduler.stop.set()
+        self.detections.stop.set()
         if self.api_server:
             self.api_server.shutdown()
         self.loop.call_soon_threadsafe(self.loop.stop)
