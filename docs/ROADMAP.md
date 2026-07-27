@@ -79,8 +79,18 @@ support, regulatory packages, refurb history, agent context.*
    (protocol.py isolates this).
 2. **Challenge-response module identity** — secure element on the H563
    module rev; replaces allowlist trust at VERIFYING (spec §5.4).
-3. **MQTT northbound publisher** — CloudEvents over MQTT, store-and-forward
-   from the log (the log IS the outbox); severity-based routing for alerts.
+3. **MQTT northbound publisher / cloud ingest** — CloudEvents over MQTT,
+   store-and-forward from the log (the log IS the outbox), resumable by
+   sequence; severity-based routing for alerts. This is where any consumer
+   of the legacy `tele/#` topics lands.
+3b. **Faceplate (local screen)** — one static HTML page served by the hub
+   (kiosk on the unit or any LAN tablet): latest values with quality +
+   permitted-use, NE107 status, run progress, active alerts — fed by
+   /v1 + SSE like every other client. HTML stays a client, never the
+   contract; an `extensions/faceplate/` with one route and one file.
+3c. **Chart-ready observations** — windowed/downsampled query
+   (`/v1/observations?bucket=15m&since=7d`) so agents and UIs pull
+   render-ready series instead of raw envelopes.
 4. **OT adapter** — manifest-compiled Modbus register map; result tags gated
    by the permitted-use designation; NE107 status word; PLC request-tag
    handshake (a new ingress path with its own ceiling).
