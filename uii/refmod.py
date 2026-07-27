@@ -88,25 +88,32 @@ class RefModule:
         msg = {"t": "TELEM", "kind": kind, "channel": channel,
                "command_id": command_id, "local_seq": self.local_seq,
                "time": now_iso(), "data": data}
-        self.ring.append(msg)
+        self._send_or_buffer(msg)
+        return self.local_seq
+
+    def _send_or_buffer(self, msg):
+        """Buffer ONLY when disconnected or the write fails — a healthy
+        send leaves nothing to duplicate on the next reconnect."""
         if self.writer:
             try:
                 self.writer.write(encode(msg))
+                return
             except Exception:
                 self.writer = None
-        return self.local_seq
+        self.ring.append(msg)
 
     async def send(self, msg):
-        """ACK/PROGRESS/RESULT ride the same ring buffer as telemetry:
-        if the hub is down mid-run, the run finishes here and the messages
-        land after the hub comes back (at-least-once on reconnect)."""
-        self.ring.append(msg)
+        """ACK/PROGRESS/RESULT ride the same buffer-on-failure path as
+        telemetry: if the hub is down mid-run, the run finishes here and
+        the messages land after the hub comes back."""
         if self.writer:
             try:
                 self.writer.write(encode(msg))
                 await self.writer.drain()
+                return
             except (ConnectionResetError, BrokenPipeError, OSError):
                 self.writer = None
+        self.ring.append(msg)
 
     # -- command execution --------------------------------------------------------
 
