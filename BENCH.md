@@ -24,8 +24,11 @@ python3 -m uii.hub.main                    # terminal A — leave running
 ## 1. Plug in an instrument
 
 ```bash
-python3 -m uii.refmod                      # terminal B — leave running
+UII_SPEED=8 python3 -m uii.refmod          # terminal B — leave running
 ```
+
+(`UII_SPEED=8` compresses the simulated chemistry so a calibrate takes ~5
+seconds and a sample ~3 — slow enough to watch, fast enough to iterate.)
 
 In terminal C:
 
@@ -57,8 +60,8 @@ documentation.
 uii cmd calibrate --module refmod-01                          # missing required param
 uii cmd calibrate --module refmod-01 --param std_conc=five    # wrong type
 uii cmd calibrate --module refmod-01 --param stdconc=5        # typo'd param name
-uii cmd sample --module refmod-01 & uii cmd sample --module refmod-01
-                                            # second one: precondition-failed
+uii cmd sample --module refmod-01          # starts a ~3 s run, then quickly:
+uii cmd sample --module refmod-01          # precondition-failed: state=sampling
 ```
 
 Each rejection is instant, machine-readable, and audited
@@ -122,11 +125,9 @@ uii modules                                # adopted — and its serial is now
 Start a slow sample, then Ctrl-C the hub (terminal A) while it runs:
 
 ```bash
-# terminal B (replace the module): UII_SPEED=4 python3 -m uii.refmod
-uii cmd sample --module refmod-01          # ~6 s run; now kill the hub
-python3 -m uii.hub.main                    # bring it back
-uii cmd  # no-op; then check the command id from before:
-uii --json evidence --kind result --limit 3
+uii cmd sample --module refmod-02          # a ~3 s run; Ctrl-C the hub NOW
+python3 -m uii.hub.main                    # bring it back (same terminal A)
+uii --json evidence --kind result --limit 3    # the run's result landed anyway
 ```
 
 The run finished on the module while the hub was dead; the buffered
