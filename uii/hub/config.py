@@ -69,6 +69,11 @@ class HubConfig:
         # evidence stream (see uii/hub/detections.py, docs/detections.md)
         self.detections: list[dict] = raw.get("detections") or []
 
+        # authority: max risk each actor class runs without approval, and
+        # absolute per-ingress-path ceilings (see uii/hub/authority.py)
+        self.authority: dict = raw.get("authority") or {}
+        self.path_ceilings: dict = raw.get("path_ceilings") or {}
+
         self.data_dir: str = os.environ.get(
             "UII_DATA", raw.get("data_dir", "./data"))
         self._trust_path = os.path.join(self.data_dir, "trust.json")

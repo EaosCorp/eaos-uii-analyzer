@@ -12,6 +12,18 @@
       "auto_calibrate": false
     }
   },
+  "authority": {
+    "user": "disruptive",
+    "agent": "routine",
+    "system": "disruptive",
+    "plc": "routine"
+  },
+  "path_ceilings": {
+    "local": "hazardous",
+    "ot": "routine",
+    "cloud": "disruptive",
+    "cellular": "routine"
+  },
   "detections": [
     {"id": "nh4-stale", "type": "stale_data", "channel": "nh4",
      "window_s": 2700, "severity": "warning",

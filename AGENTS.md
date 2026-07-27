@@ -38,31 +38,41 @@ real defect, not flakiness (fix the race properly if it is one).
 ## Operating a live hub (bench or field)
 
 ```bash
-uii --json system | modules | roles | health | alerts | obs | cal
-uii --json cmd <type> --module <id> [--param k=v] --watch
+uii --json system | modules | roles | health | alerts | obs | cal | approvals
+uii --json cmd <type> --module <id> [--param k=v] --actor agent:<you> --watch
 uii --json ack <rule> --module <id>
 uii --json release <module-id>
 uii --json evidence --kind identity --module <id>
 uii --json lineage <evidence-id>       # answers "why is this number this way"
+uii export -o bundle.tgz [--module M] [--kind k,k] [--since T] [--correlation ID]
 ```
 
 Exit codes: 0 ok · 2 command rejected · 3 failed. `--json` on any verb.
 Base URL: `--hub` or `$UII_HUB_URL` (default `http://127.0.0.1:8400`).
 
-* You are an actor: your commands carry `trace.actor` and are audited.
-* Respect manifest `risk` classes; never run `disruptive` commands
-  (calibrate, take_control) on field hardware without explicit human
-  instruction. `take_control` latches ENDPOINT: the PLC loses authority
-  until the module agent restarts.
+* You are an actor: identify yourself (`--actor agent:<name>@<where>`).
+  Your commands carry `trace.actor` and are audited.
+* Authority is ENFORCED, not honor-system: as an `agent:*` actor you run
+  `routine` commands alone; a `disruptive` command (calibrate,
+  take_control, bridge) returns `approval_required` + an approval id — tell
+  a human, who grants it with `uii approve <id>`. You cannot approve your
+  own or another agent's request. `hazardous` always needs a human.
+  Note `take_control` latches ENDPOINT: the PLC loses authority until the
+  module agent restarts.
+* Retries: send an `Idempotency-Key` header (the CLI's `cmd` is safe to
+  re-run only with one) so a command never executes twice.
 * Diagnose from evidence (`uii evidence`, `uii lineage`), not by
-  restarting services; restarts destroy the live repro.
+  restarting services; restarts destroy the live repro. When you need the
+  record to reason over or hand off, `uii export` a bundle — it contains
+  its own README and, if contiguous, re-verifies offline.
 
 ## Map
 
 ```
 uii/protocol.py        southbound framing + adoption handshake
 uii/hub/               evidence.py config.py southbound.py commands.py
-                       scheduler.py detections.py interpret.py api.py main.py
+                       authority.py scheduler.py detections.py interpret.py
+                       exports.py api.py main.py
 uii/pimod/             main.py (agent) hw.py (real+sim) timelines.py (ST9)
 uii/cli.py             the `uii` CLI (agent surface)
 tests/                 unittest; helpers.py spins real hubs on ephemeral ports

@@ -9,11 +9,20 @@ errors go to stderr. Humans get tables, agents get JSON — same commands.
   uii roles                           role registry + occupancy
   uii obs [--channel nh4]             latest observations (faceplate)
   uii cal [--module m]                latest calibrations
-  uii cmd TYPE --module M [--param k=v ...] [--watch]
+  uii cmd TYPE --module M [--param k=v ...] [--actor a] [--watch]
+                                      commands above your authority return an
+                                      approval id instead of executing
+  uii approvals                       pending risk-gated commands
+  uii approve ID [--actor user:name]  grant (human actors only; audited)
+  uii deny ID [--actor user:name]     refuse (audited; terminal result)
   uii alerts                          active detections (severity, NE107)
   uii ack RULE --module M             acknowledge an active alert (audited)
   uii health                          per-module NE107 status rollup
   uii release MODULE                  release a quarantined module (logged)
+  uii export -o bundle.tgz [--module M] [--kind k,k] [--since-seq N]
+             [--since T] [--until T] [--correlation ID]
+                                      evidence bundle: the record for
+                                      whatever call needs making
   uii watch [--kind observation,event]  tail the SSE stream
   uii evidence [--kind k] [--module m] [--limit n]
   uii lineage EVIDENCE_ID             causal graph around one record
@@ -80,7 +89,19 @@ def main(argv=None):
     s = sub.add_parser("cmd")
     s.add_argument("type"); s.add_argument("--module", required=True)
     s.add_argument("--param", action="append", default=[])
+    s.add_argument("--actor", default="user:local")
     s.add_argument("--watch", action="store_true")
+    sub.add_parser("approvals")
+    s = sub.add_parser("approve")
+    s.add_argument("id"); s.add_argument("--actor", default="user:local")
+    s = sub.add_parser("deny")
+    s.add_argument("id"); s.add_argument("--actor", default="user:local")
+    s = sub.add_parser("export")
+    s.add_argument("-o", "--out", required=True)
+    s.add_argument("--module"); s.add_argument("--kind")
+    s.add_argument("--since-seq", type=int)
+    s.add_argument("--since"); s.add_argument("--until")
+    s.add_argument("--correlation")
     sub.add_parser("alerts")
     sub.add_parser("health")
     s = sub.add_parser("ack")
@@ -140,11 +161,20 @@ def main(argv=None):
             except json.JSONDecodeError:
                 params[k] = v
         code, resp = _post(base, "/v1/commands",
-                           {"module": a.module, "type": a.type, "params": params})
+                           {"module": a.module, "type": a.type,
+                            "params": params, "actor": a.actor})
         if code != 202:
             print(f"REJECTED: {resp.get('detail', resp)}", file=sys.stderr)
             return 2
         cid = resp["command_id"]
+        if resp.get("approval_required"):
+            if _JSON:
+                print(json.dumps(resp, indent=2))
+            else:
+                print(f"command {cid} PENDING APPROVAL "
+                      f"(risk above '{a.actor}' authority)\n"
+                      f"a human grants it with: uii approve {resp['approval_id']}")
+            return 0
         print(f"command {cid} submitted (evidence {resp['evidence_id']})")
         if a.watch:
             import time as _t
@@ -162,6 +192,37 @@ def main(argv=None):
                     return 0 if result.get("status") == "succeeded" else 3
                 _t.sleep(1)
         return 0
+
+    elif a.verb == "approvals":
+        _table(_get(base, "/v1/approvals")["items"],
+               ["approval_id", "module", "type", "risk", "requested_by",
+                "requested_at"])
+
+    elif a.verb in ("approve", "deny"):
+        code, resp = _post(base, f"/v1/approvals/{a.id}",
+                           {"decision": a.verb, "actor": a.actor})
+        print(json.dumps(resp, indent=2))
+        return 0 if code == 200 else 3
+
+    elif a.verb == "export":
+        body = {"module": a.module, "kind": a.kind,
+                "since_seq": a.since_seq, "since_time": a.since,
+                "until_time": a.until, "correlation_id": a.correlation}
+        req = urllib.request.Request(
+            base + "/v1/exports",
+            data=json.dumps({k: v for k, v in body.items() if v}).encode(),
+            headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=120) as r:
+            blob = r.read()
+            count = r.headers.get("X-UII-Bundle-Count", "?")
+        with open(a.out, "wb") as f:
+            f.write(blob)
+        if _JSON:
+            print(json.dumps({"out": a.out, "bytes": len(blob),
+                              "envelopes": int(count)}))
+        else:
+            print(f"{a.out}: {count} envelopes, {len(blob)} bytes "
+                  f"(manifest.json + evidence.jsonl + chain.json + README.md)")
 
     elif a.verb == "alerts":
         _table(_get(base, "/v1/alerts")["items"],

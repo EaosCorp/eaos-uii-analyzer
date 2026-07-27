@@ -50,9 +50,11 @@ is the agent's "what can I do here".
 | `/v1` API + SSE | **built** | one query surface (`/v1/evidence`) over everything; `/v1/capabilities` describes every module from its manifest; SSE with sequence-based resume |
 | Evidence lineage | **built** | `uii lineage <id>` / `GET /v1/evidence/{id}/lineage` |
 | Actor identity | **built** | every command carries `trace.actor` (`agent:eddy-om@site`, `user:…`, `system:scheduler`); audit envelopes on rejection and ack |
+| **Authority enforcement** | **built** | actor class × declared risk × ingress path ceiling, in the command gateway; agents run `routine` alone, `disruptive` returns an approval id a human grants (`uii approve`); idempotency keys make retries safe |
+| **Evidence export bundles** | **built** | `uii export -o bundle.tgz [--module --kind --since --correlation]`: manifest + evidence.jsonl + chain.json + a README written for the next reader (human or agent); contiguous slices re-verify offline |
 | `AGENTS.md` | **built** | repo-root contract: how to run, test, query, and what an agent may and may not do |
-| MCP server | designed | §4 |
-| Filesystem projection | designed | §5 |
+| MCP server | optional, deferred | §4 — a mechanical wrapper over `/v1` whenever a shell-less surface needs one; deferring costs nothing *because* the CLI/API 1:1 rule holds |
+| Filesystem projection | maybe-later | §5 — the export bundle covers the "hand an agent the record" need; a live FUSE tree only if field use asks for it |
 
 An agent operating the bench today does it exactly like a person in a
 terminal, which is the point:
@@ -65,15 +67,24 @@ uii --json lineage 019fa1…        # why does this number look like this
 uii --json evidence --kind identity --module nh4mod-01   # life story
 ```
 
-## 3. Rules for agents (enforced by architecture, restated for clarity)
+## 3. Rules for agents (now ENFORCED, not advisory)
 
 1. Commands go through the command gateway like every actor's; there is no
-   agent side door. Manifest-declared `risk` classes gate what an agent may
-   run alone (hazardous always requires human approval — planned approval
-   flow, spec §10).
-2. Agents read from evidence, never from module sockets.
-3. Everything an agent does is attributable (`actor:`) and audited; an
-   agent investigating an alarm leaves the same trail a human would.
+   agent side door. Manifest-declared `risk` gates what an agent runs
+   alone: `routine` yes; `disruptive` returns `approval_required` + an
+   approval id a human grants or denies (both audited); `hazardous` always
+   needs a human, for everyone. Enforced in `uii/hub/authority.py` +
+   `commands.py`.
+2. Authority also binds to **connectivity**: each ingress path has an
+   absolute risk ceiling (cellular/OT are capped at `routine`; approval
+   cannot launder a request over a capped path). One `local` path is wired
+   today; the seam is in place for the rest.
+3. Agents read from evidence, never from module sockets. When an agent
+   needs the record to make a call, `uii export` produces a bounded,
+   self-describing, tamper-evident bundle designed to be dropped into
+   context (its internal README explains itself to the reader).
+4. Everything an agent does is attributable (`actor:`) and audited; agents
+   retry with an `Idempotency-Key` so a retried command cannot run twice.
 
 ## 4. Designed: the MCP server (`uii-mcp`)
 
@@ -117,10 +128,13 @@ hold.
 
 ## 6. Roadmap order
 
-1. `uii fs export` snapshot (hours of work, immediate agent payoff)
-2. `uii-mcp` resources, then tools with risk gating
-3. Approval flow for hazardous commands (spec §10) so agent autonomy can
-   widen safely
-4. Evidence-bundle prompts: a support bundle that is *designed* to be
-   dropped into an agent context (bounded size, schemas included,
-   `AGENTS.md`-style README inside the bundle)
+1. ~~Risk/role enforcement + approval flow~~ **done** (authority.py; the
+   real blocker for agent autonomy)
+2. ~~Evidence export bundles as agent context~~ **done** (`uii export`)
+3. Runbook skills on the hub: checklist files that teach any agent the
+   investigation patterns (alert → lineage → cal history → propose)
+4. Real per-path ingress stamping as the OT/cloud/cellular listeners land
+5. `uii-mcp` wrapper only when a shell-less agent surface actually needs
+   one (mechanical generation over `/v1`; nothing to design in advance)
+6. Live filesystem projection (FUSE) only if field/agent use demands more
+   than bundles

@@ -11,6 +11,10 @@ from uii-spec.md, scaffold subset plus the module-manager endpoints:
                                       NE107 signal, acked, since)
   POST /v1/alerts/ack                 acknowledge {rule, module} (audited)
   GET  /v1/health                     per-module NE107 status + its alerts
+  GET  /v1/approvals                  pending approvals (risk-gated commands)
+  POST /v1/approvals/{id}             {decision: approve|deny, actor} (audited)
+  POST /v1/exports                    evidence bundle (.tgz) for the given
+                                      filters — see uii/hub/exports.py
   GET  /v1/capabilities               manifests of adopted modules
   GET  /v1/observations/latest        faceplate call
   GET  /v1/calibrations?module=       latest calibration per module
@@ -100,6 +104,9 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
             if path == "/v1/alerts":
                 return self._json({"items": detections.active_alerts()})
 
+            if path == "/v1/approvals":
+                return self._json({"items": gateway.list_approvals()})
+
             if path == "/v1/health":
                 return self._json({
                     "hub": store.hub_id,
@@ -185,6 +192,48 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
                 return self._json({"released": m.group(1),
                                    "serial_trusted": session.serial}, 200)
 
+            m = re.fullmatch(r"/v1/approvals/([\w-]+)", url.path)
+            if m:
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = json.loads(self.rfile.read(length) or b"{}")
+                except json.JSONDecodeError:
+                    return self._problem(400, "urn:uii:problem:validation",
+                                         "invalid JSON")
+                decision = body.get("decision")
+                if decision not in ("approve", "deny"):
+                    return self._problem(400, "urn:uii:problem:validation",
+                                         "decision must be approve|deny")
+                summary, problem = gateway.decide_approval(
+                    m.group(1), decision, body.get("actor", "user:api"))
+                if problem:
+                    code = 404 if problem["type"].endswith("not-found") else 403
+                    return self._problem(code, problem["type"], problem["detail"])
+                return self._json(summary)
+
+            if url.path == "/v1/exports":
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    filters = json.loads(self.rfile.read(length) or b"{}")
+                except json.JSONDecodeError:
+                    return self._problem(400, "urn:uii:problem:validation",
+                                         "invalid JSON")
+                from .exports import build_bundle
+                blob, manifest = build_bundle(store, filters)
+                store.append("audit",
+                             {"event": "evidence-exported",
+                              "filters": manifest["filters"],
+                              "count": manifest["count"]},
+                             "urn:uii:schema:audit:0.1",
+                             actor=filters.get("actor", "user:api"))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/gzip")
+                self.send_header("Content-Length", str(len(blob)))
+                self.send_header("X-UII-Bundle-Count", str(manifest["count"]))
+                self.end_headers()
+                self.wfile.write(blob)
+                return
+
             if url.path == "/v1/alerts/ack":
                 try:
                     length = int(self.headers.get("Content-Length", 0))
@@ -211,12 +260,21 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
             if not module or not body.get("type"):
                 return self._problem(400, "urn:uii:problem:validation",
                                      "need module and type")
-            env, problem = gateway.submit(module, body["type"], body.get("params"),
-                                          actor=body.get("actor", "user:local"))
+            # ingress is "local" for the on-hub API; when the OT/cloud/
+            # cellular listeners exist, each stamps its own path here and
+            # authority.py's ceilings take effect per path
+            env, problem = gateway.submit(
+                module, body["type"], body.get("params"),
+                actor=body.get("actor", "user:local"), ingress="local",
+                idempotency_key=self.headers.get("Idempotency-Key"))
             if problem:
                 return self._problem(422, problem["type"], problem["detail"])
-            return self._json({"command_id": env["data"]["command_id"],
-                               "evidence_id": env["id"]}, 202)
+            resp = {"command_id": env["data"]["command_id"],
+                    "evidence_id": env["id"]}
+            if env["data"].get("approval_id"):
+                resp["approval_required"] = True
+                resp["approval_id"] = env["data"]["approval_id"]
+            return self._json(resp, 202)
 
         # -- SSE -----------------------------------------------------------
 

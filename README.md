@@ -54,6 +54,14 @@ back out as evidence, are acknowledgeable (`uii ack`, audited), suppressed
 by design during priming/calibration, and roll up to one NAMUR NE107-style
 status per module (`uii health`). Design + roadmap: `docs/detections.md`.
 
+Authority is **enforced at the command gateway**: effective permission =
+min(actor class, ingress path ceiling). Agents run `routine` alone;
+`disruptive` waits on a human's `uii approve` (audited both ways);
+`hazardous` always does; capped paths (cellular, OT) cannot be laundered by
+approval. Idempotency keys make retries safe. And when a call needs making,
+`uii export` produces the evidence bundle: manifest + envelopes + chain
+proof + a README that explains itself to whoever (or whatever) reads it.
+
 ## Run it
 
 ```bash
@@ -63,7 +71,7 @@ python3 demo.py            # the whole story at 300x, ~70 s, exits DEMO OK
                            # stale-data detection firing and self-clearing)
                            # -> lineage + hash-chain verify
 
-python3 -m unittest discover -t . -s tests    # 33 tests, ~60 s
+python3 -m unittest discover -t . -s tests    # 49 tests, ~75 s
 ```
 
 Or by hand:
@@ -94,7 +102,10 @@ uii/hub/southbound.py    module sessions, full adoption FSM (VERIFYING ->
 uii/hub/interpret.py     hub-side chemistry math, ported verbatim from the
                          field gateway: two-point DIW/STD fit, conc =
                          slope*A - intercept, NOX 3-fit + NO3 validity
-uii/hub/commands.py      command gateway: validation before any module sees it
+uii/hub/commands.py      command gateway: validation, authority enforcement,
+                         approvals, idempotency — the single chokepoint
+uii/hub/authority.py     min(actor class, ingress path ceiling); approval rules
+uii/hub/exports.py       evidence bundles (manifest + jsonl + chain + README)
 uii/hub/scheduler.py     role-attached cadence: control -> cal gate -> samples
 uii/hub/detections.py    configurable status engine: alerts as evidence,
                          hysteresis/debounce/suppression, NE107 rollup
@@ -139,8 +150,8 @@ DEPLOY.md                runbook for putting this on the real Pi
 
 CBOR framing · secure-element challenge-response (v0 trusts allowlist +
 released serials) · role-by-switch-port (v0: module declares its slot) ·
-risk classes/RBAC · MQTT northbound publisher · OT adapter (PLC result
-tags + NE107 status word) · retention · signed updates · time sync ·
-alarm shelving/OOS/flood controls · Westgard QC + drift detections ·
-vision and rotating instrument-class profiles · MCP server + `uii fs`
-filesystem projection (see docs/agent-interface.md).
+per-user roles atop actor classes (spec §10) · MQTT northbound publisher ·
+OT adapter (PLC result tags + NE107 status word) · retention · signed
+updates · time sync · alarm shelving/OOS/flood controls · Westgard QC +
+drift detections · vision and rotating instrument-class profiles ·
+optional MCP wrapper (see docs/agent-interface.md).

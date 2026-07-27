@@ -102,7 +102,9 @@ class EvidenceStore:
         return json.loads(row[0]) if row else None
 
     def query(self, *, kind: Optional[str] = None, module: Optional[str] = None,
-              command_id: Optional[str] = None, since_seq: int = 0,
+              command_id: Optional[str] = None,
+              correlation_id: Optional[str] = None, since_seq: int = 0,
+              since_time: Optional[str] = None, until_time: Optional[str] = None,
               limit: int = 200) -> list[dict]:
         sql, args = "SELECT body FROM envelopes WHERE seq>?", [since_seq]
         if kind:
@@ -115,8 +117,17 @@ class EvidenceStore:
         if command_id:
             sql += " AND command_id=?"
             args.append(command_id)
+        if correlation_id:
+            sql += " AND correlation_id=?"
+            args.append(correlation_id)
+        if since_time:   # RFC3339 UTC strings compare lexicographically
+            sql += " AND time>=?"
+            args.append(since_time)
+        if until_time:
+            sql += " AND time<=?"
+            args.append(until_time)
         sql += " ORDER BY seq LIMIT ?"
-        args.append(min(limit, 2000))
+        args.append(min(limit, 5000))
         return [json.loads(r[0]) for r in self._db.execute(sql, args)]
 
     def children(self, env_id: str, limit: int = 50) -> list[dict]:

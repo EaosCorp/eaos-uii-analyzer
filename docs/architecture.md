@@ -231,14 +231,40 @@ are the designed next steps. Full rationale and roadmap:
 
 ## 11. Authority and zones
 
-* The module LAN is private and unrouted; modules never listen, never reach
-  the WAN, and only ever see pre-validated commands.
-* OT integration (planned adapter) is a *projection*: manifest-derived tags,
-  request/result handshake, PLC keeps plant authority. The hub never closes
-  plant control loops; detections are advisory evidence, not interlocks.
-  Safety interlocks live on the module MCU and work with the cable unplugged.
-* Authority binds to ingress path as well as actor: cellular/remote paths
-  can never exceed service authority regardless of credential.
+**Enforced in the command gateway** (`uii/hub/authority.py`,
+`uii/hub/commands.py`): effective authority is
+**min(actor class, ingress path ceiling)**, both site-configurable in
+`hub.json`, neither agent-specific — the same matrix protects against a
+fat-fingered human, a confused scheduler, and an over-eager agent
+identically.
+
+| actor class | may run alone (default) | above that |
+|---|---|---|
+| `user:*` (human) | routine + disruptive | approval by *another* human |
+| `agent:*` | routine | approval by a human |
+| `system:*` (scheduler) | routine + disruptive — hub.json *is* its standing approval (an engineer wrote `auto_calibrate`) | approval |
+| `plc:*` | routine | approval |
+| anything | `hazardous` **always** requires a human approval envelope — structural, not config | |
+
+Per-ingress ceilings are **absolute** (approval cannot launder them):
+`local` up to hazardous · `cloud` up to disruptive · `ot` and `cellular`
+routine only (a remote service path can never hold plant authority,
+regardless of credential). Today every API request is stamped `local`; the
+listener for each future path (OT tags, northbound, cellular) stamps its
+own, and the ceilings take effect with zero gateway changes.
+
+The approval flow is evidence end to end: `audit{approval-pending}` →
+`audit{approval-granted|denied}` (approver must be human, never the
+requester) → dispatch or terminal `result{rejected|expired}`. Pending
+approvals live at `/v1/approvals`; `uii approve <id>` is one call.
+Idempotency keys on submission make agent retries safe (a retried command
+returns the original ack instead of running twice).
+
+Zones, unchanged: the module LAN is private and unrouted; modules never
+listen, never reach the WAN, and only ever see pre-validated commands. OT
+integration (planned adapter) is a projection; the hub never closes plant
+control loops; detections are advisory evidence, not interlocks; safety
+lives on the module MCU and works with the cable unplugged.
 
 ## 12. Promotion pipeline
 
@@ -253,8 +279,9 @@ bench is the verification venue, never the debugging venue.
 
 Near-term: CBOR framing · challenge-response module identity (secure
 element) · MQTT northbound publisher (store-and-forward from the log) · OT
-adapter with NE107 status word · retention policy · signed updates · MCP
-agent server · Westgard QC detections.
+adapter with NE107 status word · retention policy · signed updates ·
+Westgard QC detections · per-user roles on top of actor classes (viewer/
+operator/maintainer/engineer, spec §10) once real authentication lands.
 
 Non-goals, permanently: per-module web servers; HTML as contract; raw
 pin-level control surfaces; cloud dependency for local function; a second

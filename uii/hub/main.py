@@ -19,6 +19,7 @@ import threading
 from typing import Optional
 
 from .api import serve_api
+from .authority import AuthorityPolicy
 from .commands import CommandGateway
 from .config import HubConfig
 from .detections import Detections
@@ -39,7 +40,10 @@ class Hub:
             os.path.join(self.config.data_dir, "evidence.db"), self.config.hub_id)
         self.southbound = SouthboundHub(self.store, self.config)
         self.loop = asyncio.new_event_loop()
-        self.gateway = CommandGateway(self.store, self.southbound, self.loop)
+        self.gateway = CommandGateway(
+            self.store, self.southbound, self.loop,
+            policy=AuthorityPolicy(self.config.authority,
+                                   self.config.path_ceilings))
         self.scheduler = Scheduler(self.store, self.southbound, self.gateway,
                                    speed=speed)
         self.detections = Detections(self.store, self.southbound,
