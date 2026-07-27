@@ -41,8 +41,8 @@ import threading
 import time
 from typing import Optional
 
-from .evidence import EvidenceStore
-from .southbound import SouthboundHub
+from uii.hub.evidence import EvidenceStore
+from uii.hub.southbound import SouthboundHub
 
 SEVERITIES = ("info", "warning", "alert", "critical")
 
@@ -142,6 +142,7 @@ class Detections(threading.Thread):
             try:
                 self._drain()
                 self._evaluate()
+                self._watchdog()
             except Exception as e:  # noqa: BLE001 — the engine must never die
                 self.store.append("event",
                                   {"event": "detections-error", "error": str(e)},
@@ -163,6 +164,20 @@ class Detections(threading.Thread):
                 self._on_observation(module, channel, env)
             elif env["kind"] == "health":
                 self._latest_health[module] = env.get("data") or {}
+
+    def _watchdog(self):
+        """Health supervision (moved here from core): a module that goes
+        quiet is DEGRADED — flagged, no commands — until traffic resumes
+        (the session reader marks recovery)."""
+        now = time.time()
+        for s in list(self.southbound.sessions.values()):
+            interval = float(s.manifest.get("health_interval_s") or 60)
+            threshold = max(3 * interval, 5.0)
+            if s.state == "OPERATIONAL" and now - s.last_seen > threshold:
+                s.state = "DEGRADED"
+                s.identity_event("degraded", {
+                    "reason": f"no traffic for {int(now - s.last_seen)}s "
+                              f"(health interval {int(interval)}s)"})
 
     def _rule(self, rule_id: str) -> dict:
         return next((r for r in self.rules if r["id"] == rule_id), {})

@@ -32,7 +32,7 @@ import tarfile
 import time
 from typing import Optional
 
-from .evidence import EvidenceStore
+from uii.hub.evidence import EvidenceStore
 
 CONTIGUOUS_FILTERS = {"since_seq", "since_time", "until_time"}
 

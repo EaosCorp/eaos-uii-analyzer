@@ -4,12 +4,12 @@ system does the rest: role restored, control taken, re-calibrated, sampling
 resumed. History follows serials; the role's schedule survives the swap."""
 import unittest
 
-from .helpers import Bench, get, wait_for
+from ..helpers import Bench, get, wait_for
 
 
 class TestSwapDrill(unittest.TestCase):
     def setUp(self):
-        self.b = Bench()
+        self.b = Bench(extensions=["scheduler"])
 
     def tearDown(self):
         self.b.close()
@@ -56,3 +56,21 @@ class TestSwapDrill(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCalRequiredGate(unittest.TestCase):
+    def test_cal_required_event_when_not_auto(self):
+        from ..helpers import Bench as _B
+        b = _B(extensions=["scheduler"], roles={
+            "slot-1": {"role": "nh4-influent", "analyte": "NH4",
+                       "sample_interval_s": 900,
+                       "auto_take_control": True, "auto_calibrate": False}})
+        try:
+            b.spawn("mod-a", "slot-1")
+            wait_for(lambda: any(
+                e["data"].get("event") == "cal-required"
+                for e in get(b.base, "/v1/evidence?kind=event&limit=500")["items"]),
+                timeout=60, what="cal-required event")
+            self.assertIsNone(b.good_obs("mod-a", "nh4"))
+        finally:
+            b.close()

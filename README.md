@@ -1,157 +1,102 @@
 # eaos-uii-analyzer
 
-The chemical-analyzer implementation of Eaos's **Universal Instrument
-Interface (UII)** — the product line covering **LoaD (Lab-on-a-Desk)**, the
-**Jarbalyzer**, and the field NH4MOD retrofit that precedes them.
+Eaos's **Universal Instrument Interface (UII)** and its chemical-analyzer
+product line: **LoaD (Lab-on-a-Desk)**, the **Jarbalyzer**, and the field
+NH4MOD retrofit that precedes them.
 
-Two layers, deliberately separated (see `docs/architecture.md` §2):
-
-* **Universal core** — identity/adoption, evidence envelopes, command
-  lifecycle, health supervision, configurable detections with NE107 status
-  rollup, role-attached scheduling, `/v1` API + SSE, CLI, agent surface.
-  The same core will carry vision modules (foam-detection cameras) and
-  rotating equipment (centrifuges, pumps); a module declares its
-  `instrument_class` and the core doesn't care.
-* **Chemical-analyzer profile** (this repo's name) — method timelines,
-  calibration fits, concentrations, reagent/cal detections.
-
-In here: the **hub** (evidence core, southbound gateway, command gateway,
-scheduler, detections, HTTP+SSE API, CLI) and **pimod**, the module agent
-that runs on the real NH4MOD Raspberry Pi — split-PLC serial bridge, the
-deployed ST9 method timelines (NH4/NOX/PO4), ADS1115 detector capture. With
-`UII_SIM=1` the *same* agent runs anywhere on synthetic detector physics,
-so the software bench exercises exactly the code that ships.
-
-Docs: **`docs/architecture.md`** (system design) ·
-**`docs/detections.md`** (hub self-monitoring: alerts, NE107, roadmap) ·
-**`docs/agent-interface.md`** (exposure to AI agents) ·
-**`AGENTS.md`** (agent operating contract) ·
-**`DEPLOY.md`** (field cutover runbook).
-Internal spec lineage: `eaos-vault/06-technical/architecture/instrument-interface/`.
-
-## The headline behavior: auto-recognize → bam, ready
-
-Plug a module in and the hub does the rest — no keyboard:
+## The one idea
 
 ```
-HELLO -> VERIFYING (type allowlist / trusted serial)
-      -> ADOPTING  (the slot's ROLE CONFIG is pushed to the module, acked)
-      -> OPERATIONAL
-      -> scheduler: take control -> calibrate -> sampling on cadence
+a module dials in and is RECOGNIZED        (adopted into its slot's role,
+                                            or quarantined if unknown)
+every fact it produces becomes EVIDENCE    (one immutable, hash-chained
+                                            record; nothing is a bare number)
+every command passes ONE GATE              (validated, audited, and always
+                                            answered by exactly one result)
 ```
 
-Unknown module? **QUARANTINED** — powered, logged, mute — and releasing it
-is one call (`uii release <id>`), after which its serial is trusted on
-sight forever. Unplug a module and its role goes vacant; plug any
-compatible unit into the slot and the role is restored onto it (config
-follows the **slot**, history follows the **serial**). Every transition is
-an identity envelope, so the swap history *is* the evidence log.
+That contract is the **core** of this repo: ~1,200 lines, six files, one
+20-second demo. It is the seam every instrument must speak — the same
+contract will carry vision modules (foam-detection cameras) and rotating
+equipment (centrifuges, pumps); a module declares its `instrument_class`
+and the core doesn't care what it measures.
 
-And the hub watches itself: **detections** configured in `hub.json`
-(thresholds with hysteresis + debounce, stale data, cal overdue, health
-flags, quality streaks) run continuously over the evidence stream, come
-back out as evidence, are acknowledgeable (`uii ack`, audited), suppressed
-by design during priming/calibration, and roll up to one NAMUR NE107-style
-status per module (`uii health`). Design + roadmap: `docs/detections.md`.
+Everything else we've built — scheduling, alerting, authority, exports,
+the real field agent — is **staged as extensions**: in-repo, fully tested,
+one config flag away, and each one demonstrates an extension hook you
+could use for something else. Nothing here is speculative scaffolding;
+it's working code parked one layer up so the core stays reviewable.
 
-Authority is **enforced at the command gateway**: effective permission =
-min(actor class, ingress path ceiling). Agents run `routine` alone;
-`disruptive` waits on a human's `uii approve` (audited both ways);
-`hazardous` always does; capped paths (cellular, OT) cannot be laundered by
-approval. Idempotency keys make retries safe. And when a call needs making,
-`uii export` produces the evidence bundle: manifest + envelopes + chain
-proof + a README that explains itself to whoever (or whatever) reads it.
-
-## Run it
+## Run it (Python 3.10+, stdlib only, no install)
 
 ```bash
-python3 demo.py            # the whole story at 300x, ~70 s, exits DEMO OK
-                           # adoption -> hands-off to good data -> NE107 ok ->
-                           # quarantine + release -> SWAP DRILL (with the
-                           # stale-data detection firing and self-clearing)
-                           # -> lineage + hash-chain verify
-
-python3 -m unittest discover -t . -s tests    # 49 tests, ~75 s
+python3 demo.py                               # the core seam, ~20 s, DEMO OK
+python3 -m unittest discover -t . -s tests/core        # core: 12 tests
+python3 demo_full.py                          # everything enabled, ~90 s
+python3 -m unittest discover -t . -s tests    # all 56 tests, ~50 s
 ```
 
 Or by hand:
 
 ```bash
-python3 -m uii.hub.main &                                # api :8400, southbound :7300
-UII_SIM=1 UII_SPEED=100 python3 -m uii.pimod.main &      # dials in, gets adopted
+python3 -m uii.hub.main &                     # api :8400, southbound :7300
+python3 -m uii.refmod &                       # dials in, gets adopted
 python3 -m uii.cli modules
-python3 -m uii.cli cmd take_control --module nh4mod-01 --watch
-python3 -m uii.cli cmd calibrate --module nh4mod-01 --param std_conc=5.0 --watch
-python3 -m uii.cli cmd sample --module nh4mod-01 --watch
-python3 -m uii.cli obs
-python3 -m uii.cli watch                                 # live SSE tail
+python3 -m uii.cli cmd calibrate --module refmod-01 --param std_conc=5.0 --watch
+python3 -m uii.cli cmd sample --module refmod-01 --watch      # prints mg/L
+python3 -m uii.cli lineage <evidence-id>      # why is this number this way
 ```
 
-Hub + CLI are stdlib-only — any Python 3.10+, a Pi included. pimod needs
-`pyserial` + `adafruit-circuitpython-ads1x15` only on real hardware.
+## Read the core in this order (~10 minutes)
 
-## Layout
+| # | File | What it settles |
+|---|---|---|
+| 1 | `uii/protocol.py` (49) | the wire: JSON-lines messages + the adoption handshake |
+| 2 | `uii/hub/evidence.py` (~200) | the spine: every fact is a hash-chained envelope with causal lineage; one store, one query surface |
+| 3 | `uii/hub/southbound.py` (~300) | recognize & adopt: VERIFYING → role-config push → OPERATIONAL; quarantine + one-call release with persistent trust |
+| 4 | `uii/hub/commands.py` (~170) | the one gate: manifest validation, policy hook, one result per command, idempotent retries |
+| 5 | `uii/hub/interpret.py` (~200) | facts → interpretations: two-point fit, mg/L with calibration lineage and a **permitted-use designation** (control / reporting / none) |
+| 6 | `uii/refmod.py` (~230) | the other half of the seam: the smallest honest module. Building a camera or pump class? Start here |
 
-```
-uii/protocol.py          message framing (JSON Lines v0.2; CBOR at Stage 3)
-uii/hub/evidence.py      the spine: SQLite WAL, seq, hash chain, lineage, fan-out
-uii/hub/config.py        role registry (slot -> role config) + runtime trust
-uii/hub/southbound.py    module sessions, full adoption FSM (VERIFYING ->
-                         ADOPTING -> OPERATIONAL / QUARANTINED / DEGRADED /
-                         REMOVED), role-config push, quarantine release
-uii/hub/interpret.py     hub-side chemistry math, ported verbatim from the
-                         field gateway: two-point DIW/STD fit, conc =
-                         slope*A - intercept, NOX 3-fit + NO3 validity
-uii/hub/commands.py      command gateway: validation, authority enforcement,
-                         approvals, idempotency — the single chokepoint
-uii/hub/authority.py     min(actor class, ingress path ceiling); approval rules
-uii/hub/exports.py       evidence bundles (manifest + jsonl + chain + README)
-uii/hub/scheduler.py     role-attached cadence: control -> cal gate -> samples
-uii/hub/detections.py    configurable status engine: alerts as evidence,
-                         hysteresis/debounce/suppression, NE107 rollup
-uii/hub/api.py           /v1 REST + SSE (modules, roles, alerts, health,
-                         release, evidence…)
-uii/cli.py               `uii` CLI mirroring the API; --json on every verb
-uii/pimod/main.py        THE MODULE AGENT for the real Pi: BRIDGE/ENDPOINT
-                         split-PLC modes, timeline engine, ring buffer, redial
-uii/pimod/timelines.py   ST9 tables + prime/calibrate/sample event tables,
-                         ported VERBATIM from the deployed gateway
-uii/pimod/hw.py          real serial/ADS1115 + simulated hardware (hidden-
-                         truth detector physics)
-demo.py                  end-to-end proof, exits DEMO OK
-tests/                   unittest suite (interpret math, evidence chain,
-                         adoption, swap drill, manual path, PLC bridge,
-                         detections mechanics + live alerting)
-deploy/                  install.sh, systemd units, config examples
-docs/                    architecture.md · detections.md · agent-interface.md
-AGENTS.md                operating contract for AI agents
-tools/legacy-shim.md     mapping from the legacy NH4MOD MQTT gateway
-DEPLOY.md                runbook for putting this on the real Pi
-```
+Supporting cast: `uii/hub/config.py` (roles, trust, extension switchboard),
+`uii/hub/api.py` (/v1 REST + SSE), `uii/hub/main.py` (wiring + the
+20-line extension loader), `uii/cli.py` (every verb has `--json`).
 
-## Design rules carried from the spec
+## The extensions (staged, tested, one flag away)
 
-- Modules produce **facts** (raw volts, serial traffic, states); the hub
-  produces **interpretations** (absorbance → concentration via a calibration
-  *envelope*), so every derived value is recomputable and carries
-  `calibration_id` + `raw_refs` lineage.
-- Modules **dial the hub** and hold one TCP connection; no listening ports
-  on modules. Telemetry rides a ring buffer through hub restarts.
-- **Role vs serial:** config keyed to the slot's role; history keyed to the
-  hardware serial. Swap = plumbing work, not IT work.
-- Unknown modules are **quarantined**: powered, logged, mute, one-call release.
-- Every fact is a hash-chained envelope; `uii lineage <id>` answers "can I
-  trust this number" in one call, and the whole chain re-verifies from the API.
-- **BRIDGE mode preserves plant authority**: the PLC drives the device
-  through the agent untouched (every line logged); ENDPOINT is latched
-  exactly like the field gateway's latch.
+Enable per site: `"extensions": ["scheduler", "detections", ...]` in
+hub.json. Each package's `__init__.py` is a `setup(hub)` that wires it
+through a declared hook — the extension mechanism *is* the demonstration
+of how this grows. Details and sequencing: **`docs/ROADMAP.md`**.
 
-## Not yet here (tracked in docs/ and the playbook)
+| Extension | What it adds | Hook it demonstrates |
+|---|---|---|
+| `analyzer` | the full field profile: NOX 3-channel math, verbatim ST9 timelines, **pimod** (the real NH4MOD Pi agent; `UII_SIM=1` runs it anywhere) | interpreter registry per `instrument_class` |
+| `scheduler` | role-attached cadence: control → cal gate → samples; survives swaps ("bam, ready") | background service + gateway client |
+| `detections` | configurable alerts as evidence (hysteresis, debounce, ISA-style suppression), NAMUR NE107 status rollup, health watchdog | evidence fan-out subscription + API routes |
+| `authority` | actor × risk × ingress-path enforcement, human approval flow, locked mode (identity from tokens) | gateway policy (allow / reject / **defer**) + API auth |
+| `exports` | tamper-evident evidence bundles (`uii export -o bundle.tgz`) | one API route over the store |
 
-CBOR framing · secure-element challenge-response (v0 trusts allowlist +
-released serials) · role-by-switch-port (v0: module declares its slot) ·
-per-user roles atop actor classes (spec §10) · MQTT northbound publisher ·
-OT adapter (PLC result tags + NE107 status word) · retention · signed
-updates · time sync · alarm shelving/OOS/flood controls · Westgard QC +
-drift detections · vision and rotating instrument-class profiles ·
-optional MCP wrapper (see docs/agent-interface.md).
+## Docs
+
+- **`docs/architecture.md`** — the full system design: universal core vs
+  instrument-class profiles, evidence model, authority, zones
+- **`docs/ROADMAP.md`** — every staged and planned piece, in order
+- `docs/detections.md` · `docs/agent-interface.md` — deep design docs for
+  those extensions (research grounding included)
+- `AGENTS.md` — operating contract for AI agents · `DEPLOY.md` — field
+  cutover runbook (real Pi, one-command rollback)
+- Internal spec lineage: `eaos-vault/06-technical/architecture/instrument-interface/`
+
+## Design rules (non-negotiable)
+
+- Modules produce **facts**; the hub produces **interpretations**; every
+  derived value is recomputable and carries its lineage.
+- Modules dial the hub; no listening ports on modules; telemetry rides a
+  ring buffer through hub restarts.
+- Role vs serial: config follows the **slot**, history follows the
+  **hardware**. Swap = plumbing work, not IT work.
+- If it happened, it is an envelope. There is no side channel, and the
+  chain re-verifies from the API (both demos do it every run).
+- Core stays stdlib-only and instrument-class agnostic. Hardware libs
+  live behind guarded imports in the analyzer extension only.

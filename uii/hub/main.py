@@ -1,85 +1,104 @@
-"""Hub entrypoint.
+"""Hub entrypoint and wiring.
 
-  UII_CONFIG     hub config JSON       (default ./config/hub.json if present)
-  UII_HUB_ID     hub identity          (overrides config)
-  UII_DATA       data dir              (default ./data — evidence.db, trust.json)
-  UII_SB_PORT    southbound TCP port   (default 7300; 0 = ephemeral)
-  UII_API_PORT   HTTP API port         (default 8400; 0 = ephemeral)
-  UII_ALLOWED    comma list of adoptable module types (overrides config)
-  UII_SPEED      time compression for bench runs (default 1 — REAL TIME;
-                 scales scheduler cadence only, must be 1 in the field)
+  UII_CONFIG      hub config JSON      (default ./config/hub.json if present)
+  UII_HUB_ID      hub identity         (overrides config)
+  UII_DATA        data dir             (default ./data)
+  UII_SB_PORT     southbound TCP port  (default 7300; 0 = ephemeral)
+  UII_API_PORT    HTTP API port        (default 8400; 0 = ephemeral)
+  UII_ALLOWED     comma list of adoptable module types (overrides config)
+  UII_EXTENSIONS  comma list of extensions (overrides config)
+  UII_SPEED       time compression for bench runs (default 1 — REAL TIME)
 
 Run: python3 -m uii.hub.main
+
+Extension loading: each name in config `extensions` resolves to the
+package `extensions.<name>`, whose `setup(hub)` wires it in through the
+hub's hooks BEFORE the API starts serving:
+
+  hub.southbound.interpreters[cls]   result interpreter per instrument class
+  hub.gateway.policy                 command authority (decide/defer)
+  hub.api_get_routes / api_post_routes   extra /v1 endpoints
+  hub.api_auth                       request authentication
+  hub.module_row_enrichers           extra columns on /v1/modules
+  hub.add_service(thread)            background engines (started/stopped
+                                     with the hub; thread has .stop Event)
+  hub.store.subscribe()              the evidence fan-out (how engines watch)
 """
 from __future__ import annotations
 
 import asyncio
+import importlib
 import os
 import threading
 from typing import Optional
 
 from .api import serve_api
-from .authority import AuthorityPolicy
 from .commands import CommandGateway
 from .config import HubConfig
-from .detections import Detections
 from .evidence import EvidenceStore
-from .scheduler import Scheduler
+from .interpret import make_analyzer_interpreter
 from .southbound import SouthboundHub
 
 
 class Hub:
-    """Everything wired together; embeddable (tests, demo) or run as main."""
+    """Everything wired together; embeddable (tests, demos) or run as main."""
 
     def __init__(self, config: Optional[HubConfig] = None,
                  sb_port: int = 7300, api_port: int = 8400,
                  speed: float = 1.0):
         self.config = config or HubConfig(os.environ.get("UII_CONFIG"))
+        self.speed = speed
         os.makedirs(self.config.data_dir, exist_ok=True)
         self.store = EvidenceStore(
             os.path.join(self.config.data_dir, "evidence.db"), self.config.hub_id)
         self.southbound = SouthboundHub(self.store, self.config)
         self.loop = asyncio.new_event_loop()
-        self.gateway = CommandGateway(
-            self.store, self.southbound, self.loop,
-            policy=AuthorityPolicy(self.config.authority,
-                                   self.config.path_ceilings))
-        self.scheduler = Scheduler(self.store, self.southbound, self.gateway,
-                                   speed=speed)
-        self.detections = Detections(self.store, self.southbound,
-                                     self.config.detections, speed=speed)
+        self.gateway = CommandGateway(self.store, self.southbound, self.loop)
+
+        # -- extension hooks (populated by setup(hub) calls) -----------------
+        self.api_get_routes: list = []
+        self.api_post_routes: list = []
+        self.api_auth = None
+        self.module_row_enrichers: list = []
+        self.services: list = []
+
+        # core registers the reference chemical-analyzer interpreter;
+        # the analyzer extension replaces it with the full field version
+        self.southbound.interpreters["chemical-analyzer"] = make_analyzer_interpreter()
+
         self._sb_port_req = sb_port
         self._api_port_req = api_port
         self.api_server = None
         self._thread: Optional[threading.Thread] = None
         self._ready = threading.Event()
 
+    def add_service(self, thread) -> None:
+        """Register a background engine (daemon Thread with a .stop Event)."""
+        self.services.append(thread)
+
     # -- lifecycle ---------------------------------------------------------
 
     def start(self):
-        """Run southbound + monitor on a background thread; API + scheduler too."""
+        for name in self.config.extensions:
+            importlib.import_module(f"extensions.{name}").setup(self)
+
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
         self._ready.wait(timeout=10)
-        self.api_server = serve_api(self.store, self.southbound, self.gateway,
-                                    self.detections, self.loop,
-                                    "0.0.0.0", self._api_port_req)
+        self.api_server = serve_api(self, "0.0.0.0", self._api_port_req)
         self.api_port = self.api_server.server_address[1]
-        self.scheduler.start()
-        self.detections.start()
+        for svc in self.services:
+            svc.start()
         self.store.append("event",
                           {"event": "hub-started", "api_port": self.api_port,
-                           "southbound_port": self.sb_port},
+                           "southbound_port": self.sb_port,
+                           "extensions": self.config.extensions},
                           "urn:uii:schema:event:0.1", actor="system:hub")
         return self
 
     def _run_loop(self):
         asyncio.set_event_loop(self.loop)
         ready = asyncio.Event()
-
-        async def _amain():
-            self.loop.create_task(self.southbound.monitor())
-            await self.southbound.serve("0.0.0.0", self._sb_port_req, ready)
 
         async def _await_ready():
             await ready.wait()
@@ -88,7 +107,8 @@ class Hub:
 
         self.loop.create_task(_await_ready())
         try:
-            self.loop.run_until_complete(_amain())
+            self.loop.run_until_complete(
+                self.southbound.serve("0.0.0.0", self._sb_port_req, ready))
         except (KeyboardInterrupt, asyncio.CancelledError, RuntimeError):
             pass  # RuntimeError: loop stopped by Hub.stop() mid-serve
         finally:
@@ -103,8 +123,8 @@ class Hub:
             self.loop.close()
 
     def stop(self):
-        self.scheduler.stop.set()
-        self.detections.stop.set()
+        for svc in self.services:
+            svc.stop.set()
         if self.api_server:
             self.api_server.shutdown()
         self.loop.call_soon_threadsafe(self.loop.stop)
@@ -121,7 +141,8 @@ def main():
               speed=float(os.environ.get("UII_SPEED", 1)))
     hub.start()
     print(f"[hub] {config.hub_id} · api :{hub.api_port} · southbound :{hub.sb_port} "
-          f"· data {config.data_dir} · roles {list(config.roles)}")
+          f"· data {config.data_dir} · roles {list(config.roles)} "
+          f"· extensions {config.extensions or '[]'}")
     try:
         hub._thread.join()
     except KeyboardInterrupt:

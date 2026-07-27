@@ -4,25 +4,27 @@ Agent contract: every verb supports --json (structured stdout, stable
 field names); exit codes are meaningful (0 ok · 2 rejected · 3 failed);
 errors go to stderr. Humans get tables, agents get JSON — same commands.
 
-  uii system                          hub identity + counts
+CORE verbs (work against any hub):
+
+  uii system                          hub identity, auth mode, extensions
   uii modules                         every module the hub knows, all states
   uii roles                           role registry + occupancy
   uii obs [--channel nh4]             latest observations (faceplate)
   uii cal [--module m]                latest calibrations
   uii cmd TYPE --module M [--param k=v ...] [--actor a] [--watch]
-                                      commands above your authority return an
-                                      approval id instead of executing
-  uii approvals                       pending risk-gated commands
-  uii approve ID [--actor user:name]  grant (human actors only; audited)
-  uii deny ID [--actor user:name]     refuse (audited; terminal result)
-  uii alerts                          active detections (severity, NE107)
-  uii ack RULE --module M             acknowledge an active alert (audited)
-  uii health                          per-module NE107 status rollup
   uii release MODULE                  release a quarantined module (logged)
+
+EXTENSION verbs (need the matching extension enabled on the hub,
+otherwise a clean not-found error):
+
+  uii approvals · approve ID · deny ID          [authority] risk-gated
+                                      commands await a human; approvals
+                                      are audited both ways
+  uii alerts · ack RULE --module M · health     [detections] active alerts
+                                      + NE107 status rollup
   uii export -o bundle.tgz [--module M] [--kind k,k] [--since-seq N]
              [--since T] [--until T] [--correlation ID]
-                                      evidence bundle: the record for
-                                      whatever call needs making
+                                                [exports] evidence bundle
   uii watch [--kind observation,event]  tail the SSE stream
   uii evidence [--kind k] [--module m] [--limit n]
   uii lineage EVIDENCE_ID             causal graph around one record
@@ -53,8 +55,15 @@ def _headers(extra=None) -> dict:
 
 def _get(base: str, path: str) -> dict:
     req = urllib.request.Request(base + path, headers=_headers())
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.loads(r.read())
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        detail = json.loads(e.read() or b"{}").get("detail", str(e))
+        print(f"error {e.code}: {detail} (extension not enabled on this hub?)"
+              if e.code == 404 else f"error {e.code}: {detail}",
+              file=sys.stderr)
+        raise SystemExit(3)
 
 
 def _post(base: str, path: str, body: dict) -> tuple[int, dict]:

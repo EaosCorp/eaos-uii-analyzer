@@ -56,13 +56,18 @@ has two layers, and the repo is named for the second:
 
 A module declares its class in its HELLO manifest (`instrument_class:
 "chemical-analyzer"`). The class selects which **result interpreter** runs
-on the hub and which detections make sense; nothing else changes. Concretely
-in this codebase, the seam is one guard in `uii/hub/southbound.py`: results
-from a chemical-analyzer flow into `uii/hub/interpret.py` (captures →
-calibration fit → concentration); a vision module's results would flow into
-a vision interpreter (frames → classified events) registered at the same
-point. Adoption, evidence, commands, health, detections, scheduling, API,
-and CLI are class-blind and shared.
+on the hub and which detections make sense; nothing else changes.
+Concretely in this codebase, the seam is a registry —
+`hub.southbound.interpreters[instrument_class]` — and the repo layout
+enacts the layering literally: the universal core lives in `uii/` (~1,200
+lines, the README's ten-minute read order) and everything class- or
+site-specific is an `extensions/<name>/` plugin wired through declared
+hooks (`uii/hub/main.py` docstring lists them; `docs/ROADMAP.md` sequences
+them). The core registers a reference NH4/PO4 interpreter; the analyzer
+extension replaces it with the full field version; a vision module's
+interpreter (frames → classified events) registers at the same point.
+Adoption, evidence, commands, health, API, and CLI are class-blind and
+shared.
 
 What each class contributes (current thinking, only the first is built):
 
@@ -135,19 +140,23 @@ API's release call → southbound session control).
               +---------+ +----------+ +-----------+ +------------+
 ```
 
+Of the boxes below, scheduler, detections, and the OT adapter are
+extension services; the spine and the two gateways are core.
+
 * **Command gateway** (`commands.py`): every command from any actor is
   validated against the module's declared manifest before a module sees it;
   rejections are instant, machine-readable, and audited. One `result` per
   command, always, even on rejection or module loss.
-* **Scheduler** (`scheduler.py`): cadence attaches to **roles**, not
+* **Scheduler** (`extensions/scheduler/`): cadence attaches to **roles**, not
   serials, so schedules survive module swaps. Order per role: take control
   (if the role says so) → calibration gate (never sample uncalibrated) →
   samples on interval.
-* **Detections** (`detections.py`): the hub's own status engine; see
-  `detections.md`.
-* **Interpret** (`interpret.py`): the chemical-analyzer profile. Raw
-  captures become calibration envelopes and concentrations on the hub so
-  every derived value is recomputable and carries lineage.
+* **Detections** (`extensions/detections/`): the hub's own status engine;
+  see `detections.md`.
+* **Interpret** (`uii/hub/interpret.py` core two-point;
+  `extensions/analyzer/` full field math): raw captures become calibration
+  envelopes and concentrations on the hub so every derived value is
+  recomputable and carries lineage.
 
 ## 5. Module lifecycle: recognize, adopt, swap
 
@@ -192,14 +201,14 @@ the exit demo for the whole design and runs in `demo.py` and `tests/`.
 
 ## 7. The module agent (pimod) and the simulation rule
 
-`uii/pimod/` is the field agent for the NH4MOD retrofit: port A is the PLC,
+`extensions/analyzer/pimod.py` is the field agent for the NH4MOD retrofit: port A is the PLC,
 port B the pump controller, ADS1115 the detector. **BRIDGE mode** forwards
 PLC↔device serial untouched (plant authority; every line becomes evidence);
 **ENDPOINT mode** (latched, exactly like the field code) executes the ST9
 method timelines ported verbatim from the deployed gateway.
 
 The simulation rule: `UII_SIM=1` swaps only the hardware layer
-(`uii/pimod/hw.py`) for a simulator with hidden-truth detector physics; the
+(`extensions/analyzer/hw.py`) for a simulator with hidden-truth detector physics; the
 agent code is byte-identical. The hub cannot tell fake from real, which is
 what makes the software bench trustworthy: anything proven against sim
 modules ships to the integration bench as a git tag, never as edits-on-box.
@@ -241,8 +250,8 @@ are the designed next steps. Full rationale and roadmap:
 
 ## 11. Authority and zones
 
-**Enforced in the command gateway** (`uii/hub/authority.py`,
-`uii/hub/commands.py`): effective authority is
+**Enforced by the authority extension** (`extensions/authority/`, via the
+core gateway's policy hook): effective authority is
 **min(actor class, ingress path ceiling)**, both site-configurable in
 `hub.json`, neither agent-specific — the same matrix protects against a
 fat-fingered human, a confused scheduler, and an over-eager agent

@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 from uii.hub.evidence import EvidenceStore
-from uii.hub.exports import build_bundle, verify_bundle
+from extensions.exports.bundles import build_bundle, verify_bundle
 
 
 def _mk_store():

@@ -31,7 +31,7 @@ Environment:
   PORT_A/PORT_B/BAUD, ADC_ENABLED/ADC_GAIN/ADC_CHANNEL/DIVIDER_RATIO/
   SHUNT_OHMS/SIGNAL_MODE — identical to the legacy gateway.
 
-Run: python3 -m uii.pimod.main
+Run: python3 -m extensions.analyzer.pimod
 """
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ import time
 from collections import deque
 from typing import Optional
 
-from ..protocol import PROTO, encode, now_iso
+from uii.protocol import PROTO, encode, now_iso
 from . import hw
 from .timelines import ST9, VALID_ANALYTES, timeline
 

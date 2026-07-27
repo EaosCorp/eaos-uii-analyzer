@@ -1,7 +1,7 @@
 """Adoption FSM — recognize, restore, quarantine, release, trust-on-sight."""
 import unittest
 
-from .helpers import Bench, get, post, wait_for
+from ..helpers import Bench, get, post, wait_for
 
 
 class TestAdoption(unittest.TestCase):

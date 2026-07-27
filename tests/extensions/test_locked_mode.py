@@ -1,27 +1,25 @@
-"""Locked mode — identity comes from the credential, not the claim.
-
-With credentials configured, every API request needs a valid bearer token,
-the actor IS the token's mapping (a body-supplied actor is ignored), and
-"human" means "holds a user:* credential" — an agent cannot fake its way
-past the approval gate."""
+"""Locked mode (authority extension) — identity comes from the credential,
+not the claim. With credentials configured, every API request needs a
+valid bearer token, the actor IS the token's mapping (a body-supplied
+actor is ignored), and "human" means "holds a user:* credential"."""
 import json
 import unittest
 import urllib.error
 import urllib.request
 
-from .helpers import Bench, wait_for
+from ..helpers import Bench, wait_for
 
 AGENT_TOKEN = "tok-agent-000000000000000000000001"
 USER_TOKEN = "tok-user-0000000000000000000000002"
 
 
-def call(base, path, body=None, token=None, method=None):
+def call(base, path, body=None, token=None):
     headers = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(base + path, data=data, headers=headers,
-                                 method=method or ("POST" if body is not None else "GET"))
+                                 method="POST" if body is not None else "GET")
     try:
         with urllib.request.urlopen(req, timeout=10) as r:
             return r.status, json.loads(r.read())
@@ -29,26 +27,16 @@ def call(base, path, body=None, token=None, method=None):
         return e.code, json.loads(e.read() or b"{}")
 
 
-class LockedBench(Bench):
-    def __init__(self):
-        super().__init__(roles={
-            "slot-1": {"role": "nh4-manual", "analyte": "NH4",
-                       "auto_take_control": False, "auto_calibrate": False,
-                       "sample_interval_s": None}})
-        # lock the live hub: credentials load from config at startup, so
-        # rewrite the config the same way a site would and set them live
-        self.hub.config.credentials = {
-            AGENT_TOKEN: "agent:eddy-om@bench",
-            USER_TOKEN: "user:keaton",
-        }
-
-
 class TestLockedMode(unittest.TestCase):
     def setUp(self):
-        self.b = LockedBench()
-        # spawn before asserting auth (module LAN is not the API surface)
-        self.b.spawn("mod-a", "slot-1")
-        wait_for(lambda: self._state("mod-a") == "OPERATIONAL",
+        self.b = Bench(
+            extensions=["authority"],
+            roles={"slot-1": {"role": "nh4-manual", "analyte": "NH4"}},
+            extra_config={"credentials": {
+                AGENT_TOKEN: "agent:eddy-om@bench",
+                USER_TOKEN: "user:keaton"}})
+        self.b.spawn("ref-a", "slot-1")
+        wait_for(lambda: self._state("ref-a") == "OPERATIONAL",
                  what="adoption")
 
     def _state(self, module_id):
@@ -62,12 +50,12 @@ class TestLockedMode(unittest.TestCase):
         self.b.close()
 
     def test_no_token_no_api(self):
-        code, out = call(self.b.base, "/v1/modules")
+        code, _ = call(self.b.base, "/v1/modules")
         self.assertEqual(code, 401)
-        code, out = call(self.b.base, "/v1/commands",
-                         {"module": "mod-a", "type": "prime"})
+        code, _ = call(self.b.base, "/v1/commands",
+                       {"module": "ref-a", "type": "sample"})
         self.assertEqual(code, 401)
-        code, out = call(self.b.base, "/v1/modules", token="wrong-token")
+        code, _ = call(self.b.base, "/v1/modules", token="wrong-token")
         self.assertEqual(code, 401)
         code, out = call(self.b.base, "/v1/system", token=USER_TOKEN)
         self.assertEqual(code, 200)
@@ -75,10 +63,11 @@ class TestLockedMode(unittest.TestCase):
 
     def test_actor_spoof_is_ignored(self):
         """An agent token claiming to be a user in the body is still an
-        agent: disruptive command goes to approval, and the command
+        agent: disruptive command defers to approval, and the command
         envelope records the TOKEN's identity."""
         code, resp = call(self.b.base, "/v1/commands",
-                          {"module": "mod-a", "type": "take_control",
+                          {"module": "ref-a", "type": "calibrate",
+                           "params": {"std_conc": 5.0},
                            "actor": "user:fake-human"},   # the lie
                           token=AGENT_TOKEN)
         self.assertEqual(code, 202)
@@ -89,7 +78,8 @@ class TestLockedMode(unittest.TestCase):
 
     def test_agent_cannot_fake_the_approving_human(self):
         code, resp = call(self.b.base, "/v1/commands",
-                          {"module": "mod-a", "type": "take_control"},
+                          {"module": "ref-a", "type": "calibrate",
+                           "params": {"std_conc": 5.0}},
                           token=AGENT_TOKEN)
         approval_id = resp["approval_id"]
         # agent token + claimed human actor in the body -> still an agent

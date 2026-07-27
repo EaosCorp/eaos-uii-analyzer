@@ -1,8 +1,11 @@
 """Shared bench harness for the test suite. Stdlib only.
 
-A "bench" is a real hub on ephemeral ports with a tmp evidence store, plus
-modules spawned either as subprocesses (kill = unplug) or in-process (when
-a test needs to reach into the sim hardware, e.g. to inject PLC traffic).
+A "bench" is a real hub on ephemeral ports with a tmp evidence store.
+Extensions are enabled per-bench exactly the way a site would
+("extensions": [...] in the config). Modules are spawned either as
+subprocesses (kill = unplug) — refmod (the core reference module) or the
+analyzer extension's pimod in sim mode — or in-process when a test needs
+to reach the sim hardware.
 """
 from __future__ import annotations
 
@@ -14,6 +17,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -32,11 +36,8 @@ def post(base, path, body=None):
     try:
         with urllib.request.urlopen(req, timeout=10) as r:
             return r.status, json.loads(r.read())
-    except urllib.error.HTTPError as e:  # type: ignore[attr-defined]
+    except urllib.error.HTTPError as e:
         return e.code, json.loads(e.read() or b"{}")
-
-
-import urllib.error  # noqa: E402  (used above)
 
 
 def wait_for(pred, timeout=60, every=0.2, what="condition"):
@@ -57,17 +58,20 @@ DEFAULT_ROLES = {
 
 
 class Bench:
-    def __init__(self, roles=None, allowed=None, speed=SPEED):
+    def __init__(self, roles=None, allowed=None, extensions=None,
+                 extra_config=None, speed=SPEED):
         self.tmp = tempfile.mkdtemp(prefix="uii-test-")
         cfg_path = os.path.join(self.tmp, "hub.json")
+        cfg = {"hub_id": "hub-test",
+               "allowed_types": allowed or ["refmod-nh4", "nh4mod-nh4",
+                                            "nh4mod-nox", "nh4mod-po4"],
+               "extensions": extensions or [],
+               "data_dir": os.path.join(self.tmp, "data"),
+               "roles": roles if roles is not None else DEFAULT_ROLES}
+        cfg.update(extra_config or {})
         with open(cfg_path, "w") as f:
-            json.dump({"hub_id": "hub-test",
-                       "allowed_types": allowed or ["nh4mod-nh4", "nh4mod-nox",
-                                                    "nh4mod-po4"],
-                       "data_dir": os.path.join(self.tmp, "data"),
-                       "roles": roles if roles is not None else DEFAULT_ROLES},
-                      f)
-        for var in ("UII_HUB_ID", "UII_ALLOWED", "UII_DATA"):
+            json.dump(cfg, f)
+        for var in ("UII_HUB_ID", "UII_ALLOWED", "UII_DATA", "UII_EXTENSIONS"):
             os.environ.pop(var, None)
         from uii.hub.config import HubConfig
         from uii.hub.main import Hub
@@ -79,7 +83,9 @@ class Bench:
         self.procs: list[subprocess.Popen] = []
 
     def spawn(self, module_id, slot, analyte="NH4", serial=None,
-              module_type=None, speed=None) -> subprocess.Popen:
+              module_type=None, kind="refmod", speed=None) -> subprocess.Popen:
+        """kind='refmod' (core reference module) or 'pimod' (the analyzer
+        extension's field agent, sim mode)."""
         env = dict(os.environ,
                    UII_HUB=f"127.0.0.1:{self.hub.sb_port}", UII_SIM="1",
                    UII_SPEED=str(speed or self.speed), ANALYTE=analyte,
@@ -88,16 +94,18 @@ class Bench:
                    PYTHONPATH=ROOT)
         if module_type:
             env["UII_TYPE"] = module_type
-        p = subprocess.Popen([sys.executable, "-m", "uii.pimod.main"],
+        target = ("uii.refmod" if kind == "refmod"
+                  else "extensions.analyzer.pimod")
+        p = subprocess.Popen([sys.executable, "-m", target],
                              cwd=ROOT, env=env,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.procs.append(p)
         return p
 
     def spawn_inprocess(self, module_id, slot, analyte="NH4", serial=None):
-        """In-process module — returns the PiModule so tests can reach the
-        sim hardware (inject PLC lines, read .sent)."""
-        from uii.pimod.main import PiModule
+        """In-process analyzer pimod — tests can reach the sim hardware
+        (inject PLC lines, read .sent)."""
+        from extensions.analyzer.pimod import PiModule
         env = {"UII_HUB": f"127.0.0.1:{self.hub.sb_port}", "UII_SIM": "1",
                "UII_SPEED": str(self.speed), "ANALYTE": analyte,
                "UII_MODULE_ID": module_id, "UII_SLOT": slot,

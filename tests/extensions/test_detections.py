@@ -5,10 +5,10 @@ import tempfile
 import time
 import unittest
 
-from uii.hub.detections import Detections
+from extensions.detections.engine import Detections
 from uii.hub.evidence import EvidenceStore
 
-from .helpers import Bench, get, post, wait_for
+from ..helpers import Bench, get, post, wait_for
 
 
 class FakeSession:
@@ -214,7 +214,7 @@ class TestLifecycleAndRollup(unittest.TestCase):
 
 class TestLiveBench(unittest.TestCase):
     def test_stale_alert_fires_on_unplug_and_clears_on_swap(self):
-        b = Bench()
+        b = Bench(extensions=["scheduler", "detections"])
         # add detections to the hub's live config
         b.hub.detections.rules = [
             {"id": "nh4-stale", "type": "stale_data", "channel": "nh4",

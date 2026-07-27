@@ -1,24 +1,26 @@
 # AGENTS.md — operating contract for AI agents in this repo
 
-This repo is **eaos-uii-analyzer**: the chemical-analyzer implementation of
-Eaos's Universal Instrument Interface. Hub (evidence, adoption, commands,
-scheduler, detections, API/CLI) + `pimod` (the module agent that runs on
-real analyzer hardware; identical code in sim). Read
-`docs/architecture.md` before changing structure; `docs/detections.md`
+This repo is **eaos-uii-analyzer**: Eaos's Universal Instrument Interface
+(the CORE: adoption, evidence, one command gate — README has the
+ten-minute read order) plus staged extensions (analyzer field profile with
+`pimod`, scheduler, detections, authority, exports — `docs/ROADMAP.md`).
+Read `docs/architecture.md` before changing structure; `docs/detections.md`
 before touching alerting; `docs/agent-interface.md` for how live systems
 are exposed to you.
 
 ## Ground rules
 
 * **Hub + CLI are stdlib-only Python 3.10+.** Do not add dependencies.
-  `pyserial`/`adafruit-*` are allowed inside `uii/pimod/hw.py` only, behind
+  `pyserial`/`adafruit-*` are allowed inside `extensions/analyzer/hw.py` only, behind
   the existing guarded imports.
-* `uii/pimod/timelines.py` is ported VERBATIM from deployed field code.
-  Never tune ST9 strings or timings without a wet-chemistry reason.
-* The universal core (protocol, evidence, southbound, commands, scheduler,
-  detections, api, cli) must stay instrument-class agnostic. Analyzer-only
-  logic lives in `uii/hub/interpret.py` and behind the `instrument_class`
-  guard in `southbound.py`.
+* `extensions/analyzer/timelines.py` is ported VERBATIM from deployed
+  field code. Never tune ST9 strings or timings without a wet-chemistry
+  reason.
+* The universal core (`uii/`) must stay instrument-class agnostic and
+  stdlib-only. Anything else enters through the declared hooks (see
+  `uii/hub/main.py` docstring) as an `extensions/<name>/` package with a
+  `setup(hub)` — never by adding imports to core files. Field/NOX/hardware
+  logic lives in `extensions/analyzer/`.
 * Every fact is an evidence envelope. Never add a side channel (log file,
   cache, direct socket) that carries data the log does not.
 * All commands to modules go through the command gateway. No exceptions,
@@ -27,8 +29,9 @@ are exposed to you.
 ## Verify your work
 
 ```bash
-python3 -m unittest discover -t . -s tests    # full suite, ~60 s, must be OK
-python3 demo.py                               # end-to-end story, exits DEMO OK
+python3 -m unittest discover -t . -s tests    # all suites, ~50 s, must be OK
+python3 demo.py                               # core seam, ~20 s, DEMO OK
+python3 demo_full.py                          # all extensions, ~90 s, DEMO OK
 ```
 
 Both must pass before any commit. The demo checks every claim against the
@@ -72,13 +75,16 @@ Base URL: `--hub` or `$UII_HUB_URL` (default `http://127.0.0.1:8400`).
 ## Map
 
 ```
-uii/protocol.py        southbound framing + adoption handshake
-uii/hub/               evidence.py config.py southbound.py commands.py
-                       authority.py scheduler.py detections.py interpret.py
-                       exports.py api.py main.py
-uii/pimod/             main.py (agent) hw.py (real+sim) timelines.py (ST9)
-uii/cli.py             the `uii` CLI (agent surface)
-tests/                 unittest; helpers.py spins real hubs on ephemeral ports
+uii/                   THE CORE (read order in README): protocol.py,
+                       refmod.py (reference module), cli.py,
+                       hub/{evidence,config,southbound,commands,interpret,
+                            api,main}.py
+extensions/            staged plugins, each a setup(hub): analyzer/ (pimod
+                       field agent, ST9, NOX), scheduler/, detections/,
+                       authority/, exports/
+tests/core + tests/extensions   unittest; helpers.py spins real hubs with
+                       chosen extensions on ephemeral ports
 deploy/ + DEPLOY.md    field install (systemd, cutover, rollback)
-docs/                  architecture.md detections.md agent-interface.md
+docs/                  architecture.md ROADMAP.md detections.md
+                       agent-interface.md
 ```

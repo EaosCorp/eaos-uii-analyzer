@@ -10,8 +10,9 @@ hub authority deliberately, when you choose to.
 ## 0. Rehearse anywhere first (no hardware)
 
 ```bash
-python3 demo.py                                  # the full story at 300x
-python3 -m unittest discover -t . -s tests       # 21 tests, ~30 s
+python3 demo.py                                  # the core seam, ~20 s
+python3 demo_full.py                             # everything enabled, ~90 s
+python3 -m unittest discover -t . -s tests       # all 56 tests, ~50 s
 ```
 
 Both must pass on the machine you're deploying from before touching the Pi.
@@ -48,8 +49,10 @@ and approving a risk-gated command requires a `user:*` token. Verify with
   launched today (`ANALYTE`, `PORT_A`, `PORT_B`, `BAUD`, `ADC_*` are the same
   variable names). Set `UII_SERIAL` to something permanent for this physical
   unit — history follows it.
-* `/etc/uii/hub.json` — set `slot-1`'s `analyte` to match, and leave
-  `auto_take_control` / `auto_calibrate` **false** for the first cutover.
+* `/etc/uii/hub.json` — set `slot-1`'s `analyte` to match, keep
+  `"extensions"` including at least `"analyzer"` (the field profile; the
+  example enables all five), and leave `auto_take_control` /
+  `auto_calibrate` **false** for the first cutover.
 
 ## 2. Cutover (reversible in one command)
 

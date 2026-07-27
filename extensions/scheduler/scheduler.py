@@ -24,10 +24,10 @@ import threading
 import time
 from typing import Optional
 
-from .commands import CommandGateway
-from .evidence import EvidenceStore
-from .interpret import calibration_complete
-from .southbound import SouthboundHub
+from uii.hub.commands import CommandGateway
+from uii.hub.evidence import EvidenceStore
+from uii.hub.interpret import calibration_complete
+from uii.hub.southbound import SouthboundHub
 
 
 def _parse_iso(ts: str) -> Optional[float]:
@@ -93,8 +93,8 @@ class Scheduler(threading.Thread):
                     self._control_requested.add(session.module_id)
                     self._submit(session, "take_control", {})
                 continue
-            if session.mode != "ENDPOINT":
-                continue  # mode unknown until first health TELEM
+            elif session.mode not in (None, "ENDPOINT"):
+                continue  # unknown mode
             if session.module_state not in (None, "idle"):
                 continue
 
@@ -126,7 +126,9 @@ class Scheduler(threading.Thread):
             return False
         analyte = (cal["data"].get("analyte")
                    or session.manifest.get("analyte") or "NH4")
-        if not calibration_complete(analyte, cal["data"].get("fit", {})):
+        fit = cal["data"].get("fit", {})
+        if not (calibration_complete(analyte, fit)
+                or any("slope" in k and v is not None for k, v in fit.items())):
             return False
         max_age = cfg.get("cal_max_age_s")
         if max_age:

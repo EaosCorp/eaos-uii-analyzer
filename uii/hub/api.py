@@ -1,26 +1,19 @@
-"""HTTP API + SSE event stream. Stdlib only — this is the /v1 surface
-from uii-spec.md, scaffold subset plus the module-manager endpoints:
+"""HTTP API + SSE event stream. Stdlib only — the /v1 surface of the core:
 
-  GET  /v1/system                     hub identity, uptime, counts
-  GET  /v1/modules                    ALL known modules (operational,
-                                      degraded, quarantined, removed)
-  POST /v1/modules/{id}/release       release from quarantine (one call,
-                                      logged, serial trusted persistently)
-  GET  /v1/roles                      role registry + occupancy
-  GET  /v1/alerts                     active detections (rule, severity,
-                                      NE107 signal, acked, since)
-  POST /v1/alerts/ack                 acknowledge {rule, module} (audited)
-  GET  /v1/health                     per-module NE107 status + its alerts
-  GET  /v1/approvals                  pending approvals (risk-gated commands)
-  POST /v1/approvals/{id}             {decision: approve|deny, actor} (audited)
-  POST /v1/exports                    evidence bundle (.tgz) for the given
-                                      filters — see uii/hub/exports.py
-  GET  /v1/capabilities               manifests of adopted modules
-  GET  /v1/observations/latest        faceplate call
-  GET  /v1/calibrations?module=       latest calibration per module
+  GET  /v1/system · /v1/modules · /v1/roles · /v1/capabilities
+  GET  /v1/observations/latest · /v1/calibrations[?module=]
+  GET  /v1/evidence [·/{id} ·/{id}/lineage]      one query surface
+  GET  /v1/events                                 SSE, Last-Event-ID resume
   POST /v1/commands · GET /v1/commands/{id}
-  GET  /v1/evidence [·/{id} ·/{id}/lineage]
-  GET  /v1/events                     SSE, Last-Event-ID resume
+  POST /v1/modules/{id}/release                   quarantine release
+
+Extension hooks:
+  hub.api_get_routes / hub.api_post_routes — lists of (regex, fn);
+    GET fn(handler, match, query) · POST fn(handler, match, body).
+    Handlers use self._json / self._problem / self._read_json.
+  hub.api_auth — optional fn(handler) -> (actor, ok). When set (the
+    authority extension's locked mode), it runs before every request and
+    its actor overrides anything a request body claims.
 """
 from __future__ import annotations
 
@@ -34,16 +27,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from ..protocol import now_iso
-from .commands import CommandGateway
-from .evidence import EvidenceStore
-from .southbound import SouthboundHub
 
 START = time.time()
 
 
-def make_handler(store: EvidenceStore, southbound: SouthboundHub,
-                 gateway: CommandGateway, detections,
-                 loop: asyncio.AbstractEventLoop):
+def make_handler(hub):
+    store, southbound, gateway = hub.store, hub.southbound, hub.gateway
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -51,7 +40,7 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
         def log_message(self, *args):
             pass
 
-        # -- helpers -----------------------------------------------------
+        # -- helpers (extension handlers use these too) -------------------
 
         def _json(self, obj, code=200):
             body = json.dumps(obj, indent=2).encode()
@@ -69,42 +58,22 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
             self.end_headers()
             self.wfile.write(body)
 
+        def _read_json(self):
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                return json.loads(self.rfile.read(length) or b"{}")
+            except json.JSONDecodeError:
+                return None
+
         def _auth(self):
-            """Returns (actor, ok). Open mode (no credentials configured):
-            (None, True) — callers self-declare. Locked mode: the actor IS
-            the bearer token's mapping; identity cannot be claimed."""
-            creds = southbound.config.credentials
-            if not creds:
+            if hub.api_auth is None:
                 return None, True
-            tok = self.headers.get("Authorization", "")
-            if tok.lower().startswith("bearer "):
-                tok = tok[7:]
-            actor = creds.get(tok.strip())
-            if not actor:
-                self._problem(401, "urn:uii:problem:unauthorized",
-                              "valid bearer token required (locked mode)")
-                return None, False
-            return actor, True
+            return hub.api_auth(self)
 
-        def _module_rows(self):
-            live = {}
-            for s in list(southbound.sessions.values()) + list(southbound.quarantined.values()):
-                live[s.module_id] = {
-                    "id": s.module_id, "type": s.module_type, "serial": s.serial,
-                    "fw": s.fw, "slot": s.slot, "state": s.state, "role": s.role,
-                    "mode": s.mode, "module_state": s.module_state,
-                    "status": detections.ne107_status(s.module_id),
-                    "last_seen_s_ago": round(time.time() - s.last_seen, 1)}
-            rows = list(live.values())
-            for mid, info in southbound.registry.items():
-                if mid not in live:
-                    rows.append(info)
-            return rows
-
-        # -- routes ------------------------------------------------------
+        # -- GET ------------------------------------------------------------
 
         def do_GET(self):
-            _actor, ok = self._auth()
+            actor, ok = self._auth()
             if not ok:
                 return
             url = urlparse(self.path)
@@ -114,29 +83,14 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
             if path == "/v1/system":
                 return self._json({
                     "hub": store.hub_id, "uii": "0.2",
-                    "auth": "token" if southbound.config.credentials else "open",
+                    "auth": "token" if hub.api_auth else "open",
+                    "extensions": hub.config.extensions,
                     "time": now_iso(), "uptime_s": int(time.time() - START),
                     "modules_operational": len(southbound.sessions),
                     "modules_quarantined": len(southbound.quarantined)})
 
             if path == "/v1/modules":
                 return self._json({"items": self._module_rows()})
-
-            if path == "/v1/alerts":
-                return self._json({"items": detections.active_alerts()})
-
-            if path == "/v1/approvals":
-                return self._json({"items": gateway.list_approvals()})
-
-            if path == "/v1/health":
-                return self._json({
-                    "hub": store.hub_id,
-                    "modules": [
-                        {"id": s.module_id, "state": s.state,
-                         "status": detections.ne107_status(s.module_id),
-                         "alerts": [a for a in detections.active_alerts()
-                                    if a["module"] == s.module_id]}
-                        for s in southbound.sessions.values()]})
 
             if path == "/v1/roles":
                 occupancy = {s.role: s.module_id
@@ -148,7 +102,7 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
 
             if path == "/v1/capabilities":
                 return self._json({
-                    "hub": {"id": store.hub_id, "profile": "P1-scaffold"},
+                    "hub": {"id": store.hub_id},
                     "modules": [{"id": s.module_id, "type": s.module_type,
                                  "role": s.role, "manifest": s.manifest}
                                 for s in southbound.sessions.values()]})
@@ -196,7 +150,14 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
             if path == "/v1/events":
                 return self._sse(q)
 
+            for pattern, fn in hub.api_get_routes:      # extension routes
+                m = re.fullmatch(pattern, path)
+                if m:
+                    return fn(self, m, q)
+
             return self._problem(404, "urn:uii:problem:not-found", path)
+
+        # -- POST -------------------------------------------------------------
 
         def do_POST(self):
             auth_actor, ok = self._auth()
@@ -211,98 +172,69 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
                     return self._problem(404, "urn:uii:problem:not-found",
                                          f"no quarantined module '{m.group(1)}'")
                 fut = asyncio.run_coroutine_threadsafe(
-                    session.release(actor=auth_actor or "user:api"), loop)
+                    session.release(actor=auth_actor or "user:api"), hub.loop)
                 fut.result(timeout=5)
                 return self._json({"released": m.group(1),
-                                   "serial_trusted": session.serial}, 200)
+                                   "serial_trusted": session.serial})
 
-            m = re.fullmatch(r"/v1/approvals/([\w-]+)", url.path)
-            if m:
-                try:
-                    length = int(self.headers.get("Content-Length", 0))
-                    body = json.loads(self.rfile.read(length) or b"{}")
-                except json.JSONDecodeError:
+            if url.path == "/v1/commands":
+                body = self._read_json()
+                if body is None:
                     return self._problem(400, "urn:uii:problem:validation",
                                          "invalid JSON")
-                decision = body.get("decision")
-                if decision not in ("approve", "deny"):
+                module = body.get("module") or (body.get("target") or {}).get("module")
+                if not module or not body.get("type"):
                     return self._problem(400, "urn:uii:problem:validation",
-                                         "decision must be approve|deny")
-                summary, problem = gateway.decide_approval(
-                    m.group(1), decision,
-                    auth_actor or body.get("actor", "user:api"))
+                                         "need module and type")
+                # identity comes from the credential when auth is on; the
+                # on-hub API is the "local" ingress path — future OT/cloud/
+                # cellular listeners stamp their own
+                env, problem = gateway.submit(
+                    module, body["type"], body.get("params"),
+                    actor=auth_actor or body.get("actor", "user:local"),
+                    ingress="local",
+                    idempotency_key=self.headers.get("Idempotency-Key"))
                 if problem:
-                    code = 404 if problem["type"].endswith("not-found") else 403
-                    return self._problem(code, problem["type"], problem["detail"])
-                return self._json(summary)
+                    return self._problem(422, problem["type"], problem["detail"])
+                resp = {"command_id": env["data"]["command_id"],
+                        "evidence_id": env["id"]}
+                if env["data"].get("approval_id"):
+                    resp["approval_required"] = True
+                    resp["approval_id"] = env["data"]["approval_id"]
+                return self._json(resp, 202)
 
-            if url.path == "/v1/exports":
-                try:
-                    length = int(self.headers.get("Content-Length", 0))
-                    filters = json.loads(self.rfile.read(length) or b"{}")
-                except json.JSONDecodeError:
-                    return self._problem(400, "urn:uii:problem:validation",
-                                         "invalid JSON")
-                from .exports import build_bundle
-                blob, manifest = build_bundle(store, filters)
-                store.append("audit",
-                             {"event": "evidence-exported",
-                              "filters": manifest["filters"],
-                              "count": manifest["count"]},
-                             "urn:uii:schema:audit:0.1",
-                             actor=auth_actor or filters.get("actor", "user:api"))
-                self.send_response(200)
-                self.send_header("Content-Type", "application/gzip")
-                self.send_header("Content-Length", str(len(blob)))
-                self.send_header("X-UII-Bundle-Count", str(manifest["count"]))
-                self.end_headers()
-                self.wfile.write(blob)
-                return
+            body = None
+            for pattern, fn in hub.api_post_routes:     # extension routes
+                m = re.fullmatch(pattern, url.path)
+                if m:
+                    if body is None:
+                        body = self._read_json()
+                        if body is None:
+                            return self._problem(400, "urn:uii:problem:validation",
+                                                 "invalid JSON")
+                    body.setdefault("_actor", auth_actor)
+                    return fn(self, m, body)
 
-            if url.path == "/v1/alerts/ack":
-                try:
-                    length = int(self.headers.get("Content-Length", 0))
-                    body = json.loads(self.rfile.read(length) or b"{}")
-                except json.JSONDecodeError:
-                    return self._problem(400, "urn:uii:problem:validation",
-                                         "invalid JSON")
-                ok = detections.ack(body.get("rule", ""), body.get("module", ""),
-                                    actor=auth_actor or body.get("actor", "user:api"))
-                if not ok:
-                    return self._problem(404, "urn:uii:problem:not-found",
-                                         "no such active un-acked alert")
-                return self._json({"acked": body.get("rule"),
-                                   "module": body.get("module")})
+            return self._problem(404, "urn:uii:problem:not-found", url.path)
 
-            if url.path != "/v1/commands":
-                return self._problem(404, "urn:uii:problem:not-found", url.path)
-            try:
-                length = int(self.headers.get("Content-Length", 0))
-                body = json.loads(self.rfile.read(length) or b"{}")
-            except json.JSONDecodeError:
-                return self._problem(400, "urn:uii:problem:validation", "invalid JSON")
-            module = body.get("module") or (body.get("target") or {}).get("module")
-            if not module or not body.get("type"):
-                return self._problem(400, "urn:uii:problem:validation",
-                                     "need module and type")
-            # ingress is "local" for the on-hub API; when the OT/cloud/
-            # cellular listeners exist, each stamps its own path here and
-            # authority.py's ceilings take effect per path
-            # locked mode: identity comes from the credential, never the
-            # body — a caller cannot claim to be someone else
-            env, problem = gateway.submit(
-                module, body["type"], body.get("params"),
-                actor=auth_actor or body.get("actor", "user:local"),
-                ingress="local",
-                idempotency_key=self.headers.get("Idempotency-Key"))
-            if problem:
-                return self._problem(422, problem["type"], problem["detail"])
-            resp = {"command_id": env["data"]["command_id"],
-                    "evidence_id": env["id"]}
-            if env["data"].get("approval_id"):
-                resp["approval_required"] = True
-                resp["approval_id"] = env["data"]["approval_id"]
-            return self._json(resp, 202)
+        # -- shared views ---------------------------------------------------------
+
+        def _module_rows(self):
+            live = {}
+            for s in list(southbound.sessions.values()) + list(southbound.quarantined.values()):
+                row = {"id": s.module_id, "type": s.module_type,
+                       "serial": s.serial, "fw": s.fw, "slot": s.slot,
+                       "state": s.state, "role": s.role, "mode": s.mode,
+                       "module_state": s.module_state,
+                       "last_seen_s_ago": round(time.time() - s.last_seen, 1)}
+                for enrich in hub.module_row_enrichers:   # e.g. NE107 status
+                    row.update(enrich(s) or {})
+                live[s.module_id] = row
+            rows = list(live.values())
+            for mid, info in southbound.registry.items():
+                if mid not in live:
+                    rows.append(info)
+            return rows
 
         # -- SSE -----------------------------------------------------------
 
@@ -340,10 +272,7 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
     return Handler
 
 
-def serve_api(store, southbound, gateway, detections, loop,
-              host: str, port: int) -> ThreadingHTTPServer:
-    server = ThreadingHTTPServer(
-        (host, port),
-        make_handler(store, southbound, gateway, detections, loop))
+def serve_api(hub, host: str, port: int) -> ThreadingHTTPServer:
+    server = ThreadingHTTPServer((host, port), make_handler(hub))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server

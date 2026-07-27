@@ -1,26 +1,31 @@
-"""Interpretation — raw detector captures become calibrations and
-concentrations ON THE HUB (reference architecture §3: modules produce
-facts, the hub produces interpretations, so every derived value carries a
-calibration ID and stays recomputable from stored raws).
+"""Core interpreter — the single two-point colorimetric profile (NH4/PO4).
 
-The math is ported verbatim from the deployed NH4MOD gateway:
+THE SEAM, half two: modules produce FACTS (raw detector volts, named
+captures); the hub produces INTERPRETATIONS. The math is ported verbatim
+from the deployed field gateway:
 
-  absorbance A   = log10(i0 / i1)                     (per capture pair)
+  absorbance A   = log10(i0 / i1)                      (per capture pair)
   two-point fit  : slope = std_conc / (A_std - A_diw)
                    intercept = slope * A_diw
-  concentration  = slope * A_sample - intercept
+  concentration  = slope * A_sample - intercept        (mg/L)
 
-NH4 and PO4 are single-channel. NOX fits three curves from one run
-(NOX, NOX at 5x dilution, NO2) and derives NO3 = NOX - NO2 with the
-physical-validity rules from the original code.
+Every derived value carries `calibration_id` + `raw_refs` lineage and a
+machine-readable PERMITTED-USE designation from its quality attribution
+("control" fit for automated action / "reporting" / "none") — a result is
+never an unaudited bare number.
 
-Inputs are the RESULT's named captures {CAPTURE_NAME: vin_volts}; names
-are defined by uii.pimod.timelines and never re-invented here.
+This file also defines `analyzer_interpreter`, the callable the core
+registers under instrument_class "chemical-analyzer" (the extension hook
+in southbound.py). The analyzer extension replaces it with the full
+multi-analyte field version (NOX three-channel etc.); vision or rotating
+classes register their own interpreters at the same hook.
 """
 from __future__ import annotations
 
 import math
 from typing import Optional
+
+SUPPORTED = ("NH4", "PO4")   # the analyzer extension adds NOX
 
 
 def safe_log10_ratio(i0: Optional[float], i1: Optional[float],
@@ -42,11 +47,11 @@ def safe_log10_ratio(i0: Optional[float], i1: Optional[float],
         return None, f"log10 ratio error: {e}"
 
 
-def _fit(std: float, a_std: Optional[float], a_diw: Optional[float],
-         label: str) -> tuple[Optional[float], Optional[float], str]:
-    denom = (a_std or 0.0) - (a_diw or 0.0)
+def fit_two_point(std: float, a_std: Optional[float], a_diw: Optional[float],
+                  label: str = "") -> tuple[Optional[float], Optional[float], str]:
     if a_std is None or a_diw is None:
         return None, None, f"{label}: missing absorbance"
+    denom = a_std - a_diw
     if abs(denom) < 1e-12:
         return None, None, f"{label}: A_std == A_diw (degenerate)"
     slope = float(std) / denom
@@ -54,111 +59,131 @@ def _fit(std: float, a_std: Optional[float], a_diw: Optional[float],
     return slope, intercept, ""
 
 
-# ---------------------------------------------------------------------------
-# Calibration fits
-# ---------------------------------------------------------------------------
-
 def fit_calibration(analyte: str, std_conc: float, captures: dict) -> dict:
-    """Return {"fit": {...}, "absorbance": {...}, "error": str}."""
+    """Two-point DIW/STD fit. Returns {"fit", "absorbance", "error"}."""
     analyte = analyte.upper()
+    if analyte not in SUPPORTED:
+        return {"fit": {}, "absorbance": {}, "error": f"unsupported analyte {analyte}"}
     if std_conc is None or float(std_conc) <= 0:
         return {"fit": {}, "absorbance": {}, "error": "std_conc must be > 0"}
-    std_conc = float(std_conc)
-
-    if analyte in ("NH4", "PO4"):
-        p = f"{analyte}_CAL"
-        a_diw, e1 = safe_log10_ratio(captures.get(f"{p}_DIW_I0"), captures.get(f"{p}_DIW_I1"))
-        a_std, e2 = safe_log10_ratio(captures.get(f"{p}_STD_I0"), captures.get(f"{p}_STD_I1"))
-        if e1:
-            return {"fit": {}, "absorbance": {}, "error": f"DIW absorbance invalid: {e1}"}
-        if e2:
-            return {"fit": {}, "absorbance": {}, "error": f"STD absorbance invalid: {e2}"}
-        slope, intercept, err = _fit(std_conc, a_std, a_diw, analyte)
-        return {"fit": {"slope": slope, "intercept": intercept},
-                "absorbance": {"diw": a_diw, "std": a_std, "log_base": 10},
-                "error": err}
-
-    if analyte == "NOX":
-        a_nox_diw, e1 = safe_log10_ratio(captures.get("NOX_CAL_DIW_I0"), captures.get("NOX_CAL_DIW_I1"))
-        a_nox_std, e2 = safe_log10_ratio(captures.get("NOX_CAL_STD_I0"), captures.get("NOX_CAL_STD_I1"))
-        a_nox_std_5x, e3 = safe_log10_ratio(captures.get("NOX_CAL_STD_I0_5X"), captures.get("NOX_CAL_STD_I1_5X"))
-        a_no2_diw, e4 = safe_log10_ratio(captures.get("NO2_CAL_DIW_I0"), captures.get("NO2_CAL_DIW_I1"))
-        a_no2_std, e5 = safe_log10_ratio(captures.get("NO2_CAL_STD_I0"), captures.get("NO2_CAL_STD_I1"))
-        err = e1 or e2 or e3 or e4 or e5
-        fit: dict = {}
-        if not err:
-            nox_slope, nox_intercept, e_nox = _fit(std_conc, a_nox_std, a_nox_diw, "NOX")
-            nox_slope_5x, nox_intercept_5x, e_5x = _fit(std_conc, a_nox_std_5x, a_nox_diw, "NOX_5X")
-            no2_slope, no2_intercept, e_no2 = _fit(std_conc, a_no2_std, a_no2_diw, "NO2")
-            err = e_nox or e_5x or e_no2
-            fit = {"nox_slope": nox_slope, "nox_intercept": nox_intercept,
-                   "nox_slope_5x": nox_slope_5x, "nox_intercept_5x": nox_intercept_5x,
-                   "no2_slope": no2_slope, "no2_intercept": no2_intercept}
-        return {"fit": fit,
-                "absorbance": {"nox_diw": a_nox_diw, "nox_std": a_nox_std,
-                               "nox_std_5x": a_nox_std_5x, "no2_diw": a_no2_diw,
-                               "no2_std": a_no2_std, "log_base": 10},
-                "error": err}
-
-    return {"fit": {}, "absorbance": {}, "error": f"unknown analyte {analyte}"}
+    p = f"{analyte}_CAL"
+    a_diw, e1 = safe_log10_ratio(captures.get(f"{p}_DIW_I0"), captures.get(f"{p}_DIW_I1"))
+    a_std, e2 = safe_log10_ratio(captures.get(f"{p}_STD_I0"), captures.get(f"{p}_STD_I1"))
+    if e1:
+        return {"fit": {}, "absorbance": {}, "error": f"DIW absorbance invalid: {e1}"}
+    if e2:
+        return {"fit": {}, "absorbance": {}, "error": f"STD absorbance invalid: {e2}"}
+    slope, intercept, err = fit_two_point(float(std_conc), a_std, a_diw, analyte)
+    return {"fit": {"slope": slope, "intercept": intercept},
+            "absorbance": {"diw": a_diw, "std": a_std, "log_base": 10},
+            "error": err}
 
 
 def calibration_complete(analyte: str, fit: dict) -> bool:
-    analyte = analyte.upper()
-    if analyte in ("NH4", "PO4"):
-        return fit.get("slope") is not None and fit.get("intercept") is not None
-    if analyte == "NOX":
-        return fit.get("nox_slope") is not None and fit.get("no2_slope") is not None
-    return False
+    if analyte.upper() not in SUPPORTED:
+        return False
+    return fit.get("slope") is not None and fit.get("intercept") is not None
 
-
-# ---------------------------------------------------------------------------
-# Sample interpretation
-# ---------------------------------------------------------------------------
 
 def interpret_sample(analyte: str, fit: dict, captures: dict) -> dict:
-    """Return {"channels": [{name, value, unit, absorbance}...], "error": str}.
-
-    NOX yields three channels: nox (total oxidised N), no2 (nitrite),
-    no3 (nitrate = NOX - NO2, None when physically invalid).
-    """
+    """Returns {"channels": [{name, value, unit, absorbance}], "error"}."""
     analyte = analyte.upper()
-
-    if analyte in ("NH4", "PO4"):
-        p = f"{analyte}_SAMP"
-        a_samp, err = safe_log10_ratio(captures.get(f"{p}_I0"), captures.get(f"{p}_I1"))
-        value = None
-        if not err and a_samp is not None:
-            value = float(fit["slope"]) * a_samp - float(fit["intercept"])
-        return {"channels": [{"name": analyte.lower(), "value": value,
-                              "unit": "mg/L", "absorbance": a_samp}],
-                "error": err}
-
-    if analyte == "NOX":
-        a_nox, e1 = safe_log10_ratio(captures.get("NOX_SAMP_I0"), captures.get("NOX_SAMP_I1"))
-        a_no2, e2 = safe_log10_ratio(captures.get("NO2_SAMP_I0"), captures.get("NO2_SAMP_I1"))
-        err = e1 or e2
-        nox_mgL = no2_mgL = no3_mgL = None
-        if not err:
-            nox_mgL = float(fit["nox_slope"]) * a_nox - float(fit["nox_intercept"])
-            no2_mgL = float(fit["no2_slope"]) * a_no2 - float(fit["no2_intercept"])
-            # NO3 = NOX - NO2, only when both are valid non-negative results.
-            if nox_mgL >= 0 and no2_mgL >= 0:
-                no3_mgL = nox_mgL - no2_mgL
-                if no3_mgL < 0:
-                    no3_mgL = None
-                    err = f"NO3 invalid: NOX ({nox_mgL:.4f}) < NO2 ({no2_mgL:.4f})"
-            else:
-                err = "Negative concentration result — check calibration"
-        return {"channels": [
-            {"name": "nox", "value": nox_mgL, "unit": "mg/L", "absorbance": a_nox},
-            {"name": "no2", "value": no2_mgL, "unit": "mg/L", "absorbance": a_no2},
-            {"name": "no3", "value": no3_mgL, "unit": "mg/L", "absorbance": None},
-        ], "error": err}
-
-    return {"channels": [], "error": f"unknown analyte {analyte}"}
+    if analyte not in SUPPORTED:
+        return {"channels": [], "error": f"unsupported analyte {analyte}"}
+    p = f"{analyte}_SAMP"
+    a_samp, err = safe_log10_ratio(captures.get(f"{p}_I0"), captures.get(f"{p}_I1"))
+    value = None
+    if not err and a_samp is not None:
+        value = float(fit["slope"]) * a_samp - float(fit["intercept"])
+    return {"channels": [{"name": analyte.lower(), "value": value,
+                          "unit": "mg/L", "absorbance": a_samp}],
+            "error": err}
 
 
 def channels_for(analyte: str) -> list[str]:
-    analyte = analyte.upper()
-    return {"NH4": ["nh4"], "PO4": ["po4"], "NOX": ["nox", "no2", "no3"]}.get(analyte, [])
+    return [analyte.lower()] if analyte.upper() in SUPPORTED else []
+
+
+# ---------------------------------------------------------------------------
+# The interpreter callable registered at the southbound hook.
+# ---------------------------------------------------------------------------
+
+def make_analyzer_interpreter(fit_calibration=fit_calibration,
+                              calibration_complete=calibration_complete,
+                              interpret_sample=interpret_sample,
+                              channels_for=channels_for):
+    """Build the chemical-analyzer interpreter. The analyzer extension
+    calls this with its full multi-analyte math; the core calls it with
+    the NH4/PO4 functions above. Same evidence shape either way."""
+
+    def interpreter(session, cmd, result, outputs, raw_refs):
+        store = session.hub.store
+        cmd_id = (cmd.get("data") or {}).get("command_id")
+        cmd_type = (cmd.get("data") or {}).get("type")
+        captures = outputs.get("captures") or {}
+        if not captures:
+            return
+        analyte = (outputs.get("analyte")
+                   or session.manifest.get("analyte") or "NH4").upper()
+
+        if cmd_type == "calibrate":
+            std = (cmd.get("data") or {}).get("params", {}).get(
+                "std_conc", session.role_config.get("calibrate_std_conc", 5.0))
+            fitted = fit_calibration(analyte, float(std), captures)
+            if fitted["error"]:
+                store.append(
+                    "event", {"event": "calibration-failed",
+                              "analyte": analyte, "error": fitted["error"]},
+                    "urn:uii:schema:event:0.1", module=session.module_id,
+                    trace={"command_id": cmd_id, "causation_id": result["id"],
+                           "correlation_id": cmd_id})
+                return
+            store.append(
+                "calibration",
+                {"analyte": analyte, "std_conc_mgL": float(std),
+                 "units": {"concentration": "mg/L"},
+                 "fit": fitted["fit"], "absorbance": fitted["absorbance"],
+                 "vin": captures, "raw_refs": raw_refs},
+                "urn:uii:schema:calibration:0.1", module=session.module_id,
+                trace={"command_id": cmd_id, "causation_id": result["id"],
+                       "correlation_id": cmd_id})
+
+        elif cmd_type == "sample":
+            cal = store.latest_calibration(session.module_id)
+            fit = (cal or {}).get("data", {}).get("fit", {})
+            # quality attribution -> machine-readable permitted-use
+            # designation: "control" (fit for automated action),
+            # "reporting" (records/display only), "none"
+            if cal and calibration_complete(analyte, fit):
+                res = interpret_sample(analyte, fit, captures)
+                quality = ({"status": "good", "flags": [],
+                            "permitted_use": "control"} if not res["error"]
+                           else {"status": "bad",
+                                 "flags": ["interpretation_error"],
+                                 "permitted_use": "reporting"})
+            else:
+                res = {"channels": [{"name": c, "value": None, "unit": "mg/L",
+                                     "absorbance": None}
+                                    for c in (channels_for(analyte)
+                                              or [analyte.lower()])],
+                       "error": "no calibration"}
+                quality = {"status": "bad", "flags": ["no_calibration"],
+                           "permitted_use": "none"}
+            for ch in res["channels"]:
+                store.append(
+                    "observation",
+                    {"value": round(ch["value"], 4) if ch["value"] is not None else None,
+                     "unit": ch["unit"], "analyte": analyte,
+                     "absorbance": (round(ch["absorbance"], 5)
+                                    if ch.get("absorbance") is not None else None),
+                     "error": res["error"] or None, "raw_refs": raw_refs},
+                    "urn:uii:schema:observation.concentration:0.1",
+                    module=session.module_id, channel=ch["name"],
+                    quality=quality,
+                    context={"calibration_id": cal["id"] if cal else None,
+                             "method": session.manifest.get("method"),
+                             "role": session.role},
+                    trace={"command_id": cmd_id, "causation_id": result["id"],
+                           "correlation_id": cmd_id})
+
+    return interpreter

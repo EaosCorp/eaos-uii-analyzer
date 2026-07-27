@@ -1,34 +1,32 @@
-"""Hub configuration — the role registry and trust policy.
+"""Hub configuration — role registry, trust, and the extension switchboard.
 
-Two identities, deliberately separated (reference architecture §5.1):
-
+Two identities, deliberately separated (the swap story):
   * MODULE identity (serial) — permanent, travels with the hardware.
     History follows the serial.
-  * ROLE — permanent, belongs to the installation (a slot). The role owns
-    the analyte, schedule, cal policy. Roles are keyed to slots; whatever
-    compatible module occupies the slot gets the role's config restored.
+  * ROLE — permanent, belongs to the installation (a slot). Owns the
+    analyte, schedule, cal policy. Restored onto whatever compatible
+    module occupies the slot.
 
 Config file (JSON, path from UII_CONFIG, default ./config/hub.json):
 
 {
   "hub_id": "hub-bench-001",
-  "allowed_types": ["nh4mod-nh4", "nh4mod-nox", "nh4mod-po4"],
+  "allowed_types": ["nh4mod-nh4"],
+  "extensions": [],                      // e.g. ["scheduler", "detections",
+                                         //       "authority", "exports",
+                                         //       "analyzer"]
   "roles": {
-    "slot-1": {
-      "role": "nh4-influent",
-      "analyte": "NH4",
-      "sample_interval_s": 900,
-      "cal_max_age_s": 604800,
-      "calibrate_std_conc": 5.0,
-      "auto_take_control": true,
-      "auto_calibrate": false
-    }
+    "slot-1": {"role": "nh4-influent", "analyte": "NH4",
+               "sample_interval_s": 900, "calibrate_std_conc": 5.0}
   }
 }
 
-Trust earned at runtime (quarantine release) is persisted separately in
-<data_dir>/trust.json so a released serial is re-adopted on sight forever;
-the config file stays declarative and human-owned.
+Extension-specific config (detections rules, authority matrix,
+credentials, ...) lives in the same file; extensions read it from
+`config.raw` so the core stays ignorant of their shapes.
+
+Trust earned at runtime (quarantine release) persists in
+<data_dir>/trust.json so a released serial is re-adopted on sight forever.
 """
 from __future__ import annotations
 
@@ -52,36 +50,24 @@ class HubConfig:
         if path and os.path.exists(path):
             with open(path, encoding="utf-8") as f:
                 raw = json.load(f) or {}
+        self.raw = raw
         self.hub_id: str = os.environ.get("UII_HUB_ID") or raw.get("hub_id", "hub-dev-001")
         env_allowed = os.environ.get("UII_ALLOWED")
         self.allowed_types: set[str] = (
             set(env_allowed.split(",")) if env_allowed
             else set(raw.get("allowed_types",
-                             ["nh4mod-nh4", "nh4mod-nox", "nh4mod-po4"])))
+                             ["nh4mod-nh4", "nh4mod-nox", "nh4mod-po4",
+                              "refmod-nh4"])))
+        env_ext = os.environ.get("UII_EXTENSIONS")
+        self.extensions: list[str] = (
+            env_ext.split(",") if env_ext else list(raw.get("extensions") or []))
+
         self.roles: dict[str, dict] = {}
         for slot, role_cfg in (raw.get("roles") or {}).items():
             cfg = dict(DEFAULT_ROLE_POLICY)
             cfg.update(role_cfg or {})
             cfg.setdefault("role", f"role-{slot}")
             self.roles[slot] = cfg
-
-        # detections: configurable status rules the hub evaluates over the
-        # evidence stream (see uii/hub/detections.py, docs/detections.md)
-        self.detections: list[dict] = raw.get("detections") or []
-
-        # authority: max risk each actor class runs without approval, and
-        # absolute per-ingress-path ceilings (see uii/hub/authority.py)
-        self.authority: dict = raw.get("authority") or {}
-        self.path_ceilings: dict = raw.get("path_ceilings") or {}
-
-        # credentials: token -> actor. EMPTY = open bench mode (callers
-        # self-declare actors — fine on an air-gapped bench, never in the
-        # field). NON-EMPTY = locked mode: every API request needs a valid
-        # bearer token and the actor IS the token's mapping — a caller
-        # cannot claim to be someone else, and "human" means "holds a
-        # user:* credential". Production ladder: these tokens -> mTLS /
-        # OAuth2 client-credentials (spec §10), same actor mapping.
-        self.credentials: dict = raw.get("credentials") or {}
 
         self.data_dir: str = os.environ.get(
             "UII_DATA", raw.get("data_dir", "./data"))

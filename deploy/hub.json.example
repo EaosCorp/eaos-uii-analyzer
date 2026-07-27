@@ -1,6 +1,7 @@
 {
   "hub_id": "hub-field-001",
   "allowed_types": ["nh4mod-nh4", "nh4mod-nox", "nh4mod-po4"],
+  "extensions": ["analyzer", "scheduler", "detections", "authority", "exports"],
   "roles": {
     "slot-1": {
       "role": "nh4-influent",
