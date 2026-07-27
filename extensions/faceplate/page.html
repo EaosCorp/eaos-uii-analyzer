@@ -51,11 +51,11 @@ tr:last-child td{border-bottom:none}
 td.v{font-family:var(--font-mono);font-size:15px;color:var(--ink)}
 .alerts .card{border-left:2px solid var(--warn)}
 .alerts .card.critical{border-left-color:var(--err)}
-.trends{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:10px}
+.trends{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:10px}
 .tcard{background:var(--surface-1);border:1px solid var(--hair2);border-radius:var(--r-lg);padding:10px 12px 8px;box-shadow:0 1px 2px rgba(30,32,28,.10);position:relative}
 .tcard .thead{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px}
 .tcard .tname{font-size:9.5px;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
-.tcard .tval{font-family:var(--font-mono);font-size:15px;color:var(--ink)}
+.tcard .tval{font-family:var(--font-mono);font-size:17px;color:var(--ink)}
 .tcard .tval span{font-size:10.5px;color:var(--ink2)}
 .tcard svg{display:block;width:100%}
 .ttip{position:absolute;pointer-events:none;background:var(--surface-2);border:1px solid var(--hair2);border-radius:var(--r);padding:3px 8px;font-family:var(--font-mono);font-size:10.5px;color:var(--ink);white-space:nowrap;box-shadow:0 2px 6px rgba(30,32,28,.15);display:none;z-index:5}
@@ -148,7 +148,7 @@ function ensureSeries(mod,ch,unit){
   if(series[k])return series[k];
   const card=document.createElement("div");card.className="tcard";
   card.innerHTML=`<div class="thead"><span class="tname">${mod} · ${ch}</span>
-    <span class="tval" data-v>—</span></div><svg height="110"></svg><div class="ttip"></div>`;
+    <span class="tval" data-v>—</span></div><svg height="160"></svg><div class="ttip"></div>`;
   $("trends").appendChild(card);$("trendsec").hidden=false;
   const st=series[k]={pts:[],unit:unit||"",el:card,lastSeq:0};
   j(`/v1/observations?module=${mod}&channel=${ch}&last=80`).then(r=>{
@@ -170,7 +170,7 @@ function addPoint(o,fromBackfill){
   if(!fromBackfill)draw(st);
 }
 function draw(st){
-  const svg=st.el.querySelector("svg"),W=st.el.clientWidth-24||400,H=110,
+  const svg=st.el.querySelector("svg"),W=st.el.clientWidth-24||400,H=160,
         padL=6,padR=8,padT=10,padB=16,pts=st.pts;
   svg.setAttribute("viewBox",`0 0 ${W} ${H}`);
   st.el.querySelector("[data-v]").innerHTML=pts.length?
@@ -188,7 +188,14 @@ function draw(st){
   g+=`<text x="${W-padR}" y="${H-padB-4}" text-anchor="end" fill="var(--muted)" font-size="9" font-family="var(--font-mono)">${vmin}</text>`;
   g+=`<text x="${padL}" y="${H-2}" fill="var(--muted)" font-size="9" font-family="var(--font-mono)">${pts[0].tm}</text>`;
   g+=`<text x="${W-padR}" y="${H-2}" text-anchor="end" fill="var(--muted)" font-size="9" font-family="var(--font-mono)">${pts[pts.length-1].tm}</text>`;
-  g+=`<path d="${pts.map((p,i)=>(i?"L":"M")+X(p.t).toFixed(1)+" "+Y(p.v).toFixed(1)).join(" ")}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`;
+  const xy=pts.map(p=>[X(p.t),Y(p.v)]);
+  let d="M"+xy[0][0].toFixed(1)+" "+xy[0][1].toFixed(1);
+  for(let i=1;i<xy.length;i++){                 // midpoint-smoothed curve
+    const [x0,y0]=xy[i-1],[x1,y1]=xy[i],mx=((x0+x1)/2).toFixed(1);
+    d+=` C ${mx} ${y0.toFixed(1)}, ${mx} ${y1.toFixed(1)}, ${x1.toFixed(1)} ${y1.toFixed(1)}`;}
+  const base=(H-padB).toFixed(1);
+  g+=`<path d="${d} L ${xy[xy.length-1][0].toFixed(1)} ${base} L ${xy[0][0].toFixed(1)} ${base} Z" fill="var(--accent)" opacity="0.07" stroke="none"/>`;
+  g+=`<path d="${d}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`;
   pts.forEach(p=>{if(p.q&&p.q!=="good")
     g+=`<circle cx="${X(p.t).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="3.5" fill="${qColor(p.q)}" stroke="var(--surface-1)" stroke-width="2"/>`;});
   const lp=pts[pts.length-1];
