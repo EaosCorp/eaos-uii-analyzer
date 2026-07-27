@@ -4,7 +4,8 @@
 > Covers the chemical-analyzer product line: **LoaD** (Lab-on-a-Desk) and the
 > **Jarbalyzer**, and the field NH4MOD retrofit that precedes them.
 > Companion docs: `detections.md` (hub self-monitoring), `agent-interface.md`
-> (exposing the system to AI agents), `../DEPLOY.md` (field cutover).
+> (exposing the system to AI agents), `DEPLOY.md` on the staged branch
+> (field cutover).
 
 ---
 

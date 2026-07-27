@@ -2,8 +2,9 @@
 
 > How the hub watches itself and its instruments: configurable alerts and
 > warnings, evaluated on the hub, emitted as evidence, rolled up to one
-> glanceable status per module. Implementation: `uii/hub/detections.py`.
-> Config: the `detections` list in `hub.json`.
+> glanceable status per module. Implementation:
+> `extensions/detections/engine.py` (staged branch). Config: the
+> `detections` list in `hub.json`.
 
 ---
 

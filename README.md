@@ -63,7 +63,7 @@ python3 -m uii.cli lineage <evidence-id>      # why is this number this way
 | 3 | `uii/hub/southbound.py` (~300) | recognize & adopt: VERIFYING → role-config push → OPERATIONAL; quarantine + one-call release with persistent trust |
 | 4 | `uii/hub/commands.py` (~170) | the one gate: manifest validation, policy hook, one result per command, idempotent retries |
 | 5 | `uii/hub/interpret.py` (~200) | facts → interpretations: two-point fit, mg/L with calibration lineage and a **permitted-use designation** (control / reporting / none) |
-| 6 | `uii/refmod.py` (~230) | the other half of the seam: the smallest honest module. Building a camera or pump class? Start here |
+| 6 | `uii/refmod.py` (~250) | the other half of the seam: the smallest honest module. Building a camera or pump class? Start here |
 
 Supporting cast: `uii/hub/config.py` (roles, trust, extension switchboard),
 `uii/hub/api.py` (/v1 REST + SSE), `uii/hub/main.py` (wiring + the
@@ -91,8 +91,8 @@ of how this grows. Details and sequencing: **`docs/ROADMAP.md`**.
 - **`docs/ROADMAP.md`** — every staged and planned piece, in order
 - `docs/detections.md` · `docs/agent-interface.md` — deep design docs for
   those extensions (research grounding included)
-- `AGENTS.md` — operating contract for AI agents · `DEPLOY.md` — field
-  cutover runbook (real Pi, one-command rollback)
+- `AGENTS.md` — operating contract for AI agents · `DEPLOY.md` (staged
+  branch) — field cutover runbook (real Pi, one-command rollback)
 - Internal spec lineage: `eaos-vault/06-technical/architecture/instrument-interface/`
 
 ## Design rules (non-negotiable)
