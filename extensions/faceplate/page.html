@@ -51,6 +51,14 @@ tr:last-child td{border-bottom:none}
 td.v{font-family:var(--font-mono);font-size:15px;color:var(--ink)}
 .alerts .card{border-left:2px solid var(--warn)}
 .alerts .card.critical{border-left-color:var(--err)}
+.trends{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:10px}
+.tcard{background:var(--surface-1);border:1px solid var(--hair2);border-radius:var(--r-lg);padding:10px 12px 8px;box-shadow:0 1px 2px rgba(30,32,28,.10);position:relative}
+.tcard .thead{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px}
+.tcard .tname{font-size:9.5px;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.tcard .tval{font-family:var(--font-mono);font-size:15px;color:var(--ink)}
+.tcard .tval span{font-size:10.5px;color:var(--ink2)}
+.tcard svg{display:block;width:100%}
+.ttip{position:absolute;pointer-events:none;background:var(--surface-2);border:1px solid var(--hair2);border-radius:var(--r);padding:3px 8px;font-family:var(--font-mono);font-size:10.5px;color:var(--ink);white-space:nowrap;box-shadow:0 2px 6px rgba(30,32,28,.15);display:none;z-index:5}
 #ticker{background:var(--surface-2);border:1px solid var(--hair2);border-radius:var(--r-lg);padding:10px 12px;font-family:var(--font-mono);font-size:11px;color:var(--ink2);max-height:210px;overflow-y:auto}
 #ticker div{padding:1.5px 0;border-bottom:1px solid var(--hair)}
 #ticker .k{color:var(--accent);display:inline-block;min-width:86px}
@@ -68,6 +76,7 @@ footer{max-width:1180px;margin:0 auto;padding:0 20px 26px;color:var(--muted);fon
 <main>
   <section><h2>Modules</h2><div class="cards" id="modules"><div class="empty">no modules yet</div></div></section>
   <section><h2>Latest values</h2><div id="obs"><div class="empty">no observations yet</div></div></section>
+  <section id="trendsec" hidden><h2>Trends</h2><div class="trends" id="trends"></div></section>
   <section class="alerts" id="alertsec" hidden><h2>Active alerts</h2><div class="cards" id="alerts"></div></section>
   <section><h2>Live evidence</h2><div id="ticker"></div></section>
 </main>
@@ -103,6 +112,7 @@ async function refresh(){
         <td>${chip(q.status||"?",qCls(q.status))}</td>
         <td>${q.permitted_use?chip(q.permitted_use,puCls(q.permitted_use)):"—"}</td>
         <td class="mono" style="color:var(--muted);font-size:10.5px">${(o.time||"").slice(11,19)}</td></tr>`;}).join("");
+    obs.filter(o=>o.source.channel!=="detector_raw").forEach(o=>ensureSeries(o.source.module,o.source.channel,o.data.unit));
     $("obs").innerHTML=rows?`<table><tr><th>module</th><th>channel</th><th>value</th><th>quality</th><th>permitted use</th><th>utc</th></tr>${rows}</table>`
                            :'<div class="empty">no observations yet</div>';
     try{
@@ -120,6 +130,7 @@ async function refresh(){
 
 function tick(env){
   const src=env.source||{}, d=env.data||{};
+  if(env.kind==="observation"&&src.channel&&src.channel!=="detector_raw"&&src.module)addPoint(env);
   if(env.kind==="progress"&&src.module){progress[src.module]=d.pct||0;}
   if(env.kind==="result"&&src.module){progress[src.module]=0;}
   const line=document.createElement("div");
@@ -128,6 +139,81 @@ function tick(env){
   const t=$("ticker"); t.prepend(line);
   while(t.children.length>40)t.removeChild(t.lastChild);
 }
+/* ---- trends ---------------------------------------------------------- */
+const series={};   // "module|channel" -> {pts:[{t,v,q,pu,seq}],unit,el}
+const qColor=q=>({good:"var(--ok)",suspect:"var(--warn)",bad:"var(--err)"}[q]||"var(--muted)");
+
+function ensureSeries(mod,ch,unit){
+  const k=mod+"|"+ch;
+  if(series[k])return series[k];
+  const card=document.createElement("div");card.className="tcard";
+  card.innerHTML=`<div class="thead"><span class="tname">${mod} · ${ch}</span>
+    <span class="tval" data-v>—</span></div><svg height="110"></svg><div class="ttip"></div>`;
+  $("trends").appendChild(card);$("trendsec").hidden=false;
+  const st=series[k]={pts:[],unit:unit||"",el:card,lastSeq:0};
+  j(`/v1/observations?module=${mod}&channel=${ch}&last=80`).then(r=>{
+    (r.items||[]).forEach(o=>addPoint(o,true));draw(st);}).catch(()=>{});
+  return st;
+}
+function addPoint(o,fromBackfill){
+  const ch=o.source.channel;if(ch==="detector_raw")return;
+  const st=ensureSeries(o.source.module,ch,o.data.unit);
+  if(o.sequence<=st.lastSeq)return;
+  st.lastSeq=o.sequence;
+  if(o.data.value==null)return;                    // gaps: unfit values live in the table
+  const t=Date.parse(o.time),last=st.pts[st.pts.length-1];
+  if(last&&t<=last.t)return;                       // dedupe replays / out-of-order
+  const q=o.quality||{};
+  st.pts.push({t:t,v:o.data.value,q:q.status,pu:q.permitted_use,
+               tm:(o.time||"").slice(11,19)});
+  if(st.pts.length>150)st.pts.shift();
+  if(!fromBackfill)draw(st);
+}
+function draw(st){
+  const svg=st.el.querySelector("svg"),W=st.el.clientWidth-24||400,H=110,
+        padL=6,padR=8,padT=10,padB=16,pts=st.pts;
+  svg.setAttribute("viewBox",`0 0 ${W} ${H}`);
+  st.el.querySelector("[data-v]").innerHTML=pts.length?
+    `${pts[pts.length-1].v} <span>${st.unit}</span>`:"—";
+  if(pts.length<2){svg.innerHTML=`<text x="${W/2}" y="${H/2}" text-anchor="middle" fill="var(--muted)" font-size="11" font-family="var(--font-ui)">collecting…</text>`;return;}
+  const vs=pts.map(p=>p.v),vmin=Math.min(...vs),vmax=Math.max(...vs),
+        span=(vmax-vmin)||1,lo=vmin-span*.12,hi=vmax+span*.12,
+        t0=pts[0].t,t1=pts[pts.length-1].t||t0+1,
+        X=t=>padL+((t-t0)/((t1-t0)||1))*(W-padL-padR),
+        Y=v=>padT+(1-(v-lo)/(hi-lo))*(H-padT-padB);
+  let g="";
+  [0.5,0,1].forEach(f=>{const y=padT+f*(H-padT-padB);
+    g+=`<line x1="${padL}" x2="${W-padR}" y1="${y}" y2="${y}" stroke="var(--hair)" stroke-width="1"/>`;});
+  g+=`<text x="${W-padR}" y="${padT-2}" text-anchor="end" fill="var(--muted)" font-size="9" font-family="var(--font-mono)">${vmax}</text>`;
+  g+=`<text x="${W-padR}" y="${H-padB-4}" text-anchor="end" fill="var(--muted)" font-size="9" font-family="var(--font-mono)">${vmin}</text>`;
+  g+=`<text x="${padL}" y="${H-2}" fill="var(--muted)" font-size="9" font-family="var(--font-mono)">${pts[0].tm}</text>`;
+  g+=`<text x="${W-padR}" y="${H-2}" text-anchor="end" fill="var(--muted)" font-size="9" font-family="var(--font-mono)">${pts[pts.length-1].tm}</text>`;
+  g+=`<path d="${pts.map((p,i)=>(i?"L":"M")+X(p.t).toFixed(1)+" "+Y(p.v).toFixed(1)).join(" ")}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`;
+  pts.forEach(p=>{if(p.q&&p.q!=="good")
+    g+=`<circle cx="${X(p.t).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="3.5" fill="${qColor(p.q)}" stroke="var(--surface-1)" stroke-width="2"/>`;});
+  const lp=pts[pts.length-1];
+  g+=`<circle cx="${X(lp.t).toFixed(1)}" cy="${Y(lp.v).toFixed(1)}" r="3.5" fill="var(--accent)" stroke="var(--surface-1)" stroke-width="2"/>`;
+  g+=`<line data-x x1="0" x2="0" y1="${padT}" y2="${H-padB}" stroke="var(--hair2)" stroke-width="1" visibility="hidden"/>`;
+  g+=`<circle data-h r="4" fill="var(--accent)" stroke="var(--surface-1)" stroke-width="2" visibility="hidden"/>`;
+  g+=`<rect x="0" y="0" width="${W}" height="${H}" fill="transparent"/>`;
+  svg.innerHTML=g;
+  const tip=st.el.querySelector(".ttip"),cross=svg.querySelector("[data-x]"),hdot=svg.querySelector("[data-h]");
+  svg.onmousemove=e=>{
+    const r=svg.getBoundingClientRect(),mx=(e.clientX-r.left)*(W/r.width);
+    let best=pts[0],bd=1e18;
+    pts.forEach(p=>{const d=Math.abs(X(p.t)-mx);if(d<bd){bd=d;best=p;}});
+    const bx=X(best.t),by=Y(best.v);
+    cross.setAttribute("x1",bx);cross.setAttribute("x2",bx);cross.setAttribute("visibility","visible");
+    hdot.setAttribute("cx",bx);hdot.setAttribute("cy",by);hdot.setAttribute("visibility","visible");
+    tip.textContent=`${best.tm} · ${best.v} ${st.unit} · ${best.q||"?"}${best.pu?" · "+best.pu:""}`;
+    tip.style.display="block";
+    const cw=st.el.clientWidth,tw=tip.offsetWidth;
+    tip.style.left=Math.min(Math.max(4,(bx/W)*cw-tw/2),cw-tw-4)+"px";
+    tip.style.top="26px";
+  };
+  svg.onmouseleave=()=>{tip.style.display="none";cross.setAttribute("visibility","hidden");hdot.setAttribute("visibility","hidden");};
+}
+/* ----------------------------------------------------------------------- */
 const KINDS=["observation","state","event","command","ack","progress","result","calibration","health","identity","audit","config"];
 const es=new EventSource("/v1/events?since=2000000000"); /* live only, no replay */
 KINDS.forEach(k=>es.addEventListener(k,e=>tick(JSON.parse(e.data))));

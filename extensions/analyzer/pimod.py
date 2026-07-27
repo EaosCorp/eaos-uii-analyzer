@@ -149,16 +149,19 @@ class PiModule:
         msg = {"t": "TELEM", "kind": kind, "channel": channel,
                "command_id": command_id, "local_seq": self.local_seq,
                "time": now_iso(), "data": data}
-        self.ring.append(msg)
         self._try_send(msg)
         return self.local_seq
 
     def _try_send(self, msg: dict):
+        """Buffer ONLY when disconnected or the write fails — a healthy
+        send leaves nothing to duplicate on the next reconnect."""
         if self.writer:
             try:
                 self.writer.write(encode(msg))
+                return
             except Exception:
                 self.writer = None
+        self.ring.append(msg)
 
     async def send(self, msg: dict):
         if self.writer:
