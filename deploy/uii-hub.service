@@ -1,0 +1,15 @@
+[Unit]
+Description=UII hub — evidence core, southbound gateway, command gateway, API
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/uii
+Environment=UII_CONFIG=/etc/uii/hub.json
+Environment=UII_DATA=/var/lib/uii
+ExecStart=/usr/bin/python3 -m uii.hub.main
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

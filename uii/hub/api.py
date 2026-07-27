@@ -1,7 +1,22 @@
 """HTTP API + SSE event stream. Stdlib only — this is the /v1 surface
-from uii-spec.md, scaffold subset."""
+from uii-spec.md, scaffold subset plus the module-manager endpoints:
+
+  GET  /v1/system                     hub identity, uptime, counts
+  GET  /v1/modules                    ALL known modules (operational,
+                                      degraded, quarantined, removed)
+  POST /v1/modules/{id}/release       release from quarantine (one call,
+                                      logged, serial trusted persistently)
+  GET  /v1/roles                      role registry + occupancy
+  GET  /v1/capabilities               manifests of adopted modules
+  GET  /v1/observations/latest        faceplate call
+  GET  /v1/calibrations?module=       latest calibration per module
+  POST /v1/commands · GET /v1/commands/{id}
+  GET  /v1/evidence [·/{id} ·/{id}/lineage]
+  GET  /v1/events                     SSE, Last-Event-ID resume
+"""
 from __future__ import annotations
 
+import asyncio
 import json
 import queue
 import re
@@ -19,7 +34,7 @@ START = time.time()
 
 
 def make_handler(store: EvidenceStore, southbound: SouthboundHub,
-                 gateway: CommandGateway):
+                 gateway: CommandGateway, loop: asyncio.AbstractEventLoop):
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -45,6 +60,20 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
             self.end_headers()
             self.wfile.write(body)
 
+        def _module_rows(self):
+            live = {}
+            for s in list(southbound.sessions.values()) + list(southbound.quarantined.values()):
+                live[s.module_id] = {
+                    "id": s.module_id, "type": s.module_type, "serial": s.serial,
+                    "fw": s.fw, "slot": s.slot, "state": s.state, "role": s.role,
+                    "mode": s.mode, "module_state": s.module_state,
+                    "last_seen_s_ago": round(time.time() - s.last_seen, 1)}
+            rows = list(live.values())
+            for mid, info in southbound.registry.items():
+                if mid not in live:
+                    rows.append(info)
+            return rows
+
         # -- routes ------------------------------------------------------
 
         def do_GET(self):
@@ -54,22 +83,27 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
 
             if path == "/v1/system":
                 return self._json({
-                    "hub": store.hub_id, "uii": "0.1",
+                    "hub": store.hub_id, "uii": "0.2",
                     "time": now_iso(), "uptime_s": int(time.time() - START),
-                    "modules_operational": len(southbound.sessions)})
+                    "modules_operational": len(southbound.sessions),
+                    "modules_quarantined": len(southbound.quarantined)})
 
             if path == "/v1/modules":
+                return self._json({"items": self._module_rows()})
+
+            if path == "/v1/roles":
+                occupancy = {s.role: s.module_id
+                             for s in southbound.sessions.values() if s.role}
                 return self._json({"items": [
-                    {"id": s.module_id, "type": s.module_type, "serial": s.serial,
-                     "fw": s.fw, "state": s.state, "role": s.role,
-                     "last_seen_s_ago": round(time.time() - s.last_seen, 1)}
-                    for s in southbound.sessions.values()]})
+                    {"slot": slot, **cfg,
+                     "occupied_by": occupancy.get(cfg["role"])}
+                    for slot, cfg in southbound.config.roles.items()]})
 
             if path == "/v1/capabilities":
                 return self._json({
                     "hub": {"id": store.hub_id, "profile": "P1-scaffold"},
                     "modules": [{"id": s.module_id, "type": s.module_type,
-                                 "manifest": s.manifest}
+                                 "role": s.role, "manifest": s.manifest}
                                 for s in southbound.sessions.values()]})
 
             if path == "/v1/observations/latest":
@@ -80,6 +114,12 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
                         if env:
                             out.append(env)
                 return self._json({"items": out})
+
+            if path == "/v1/calibrations":
+                mods = ([q["module"]] if q.get("module")
+                        else list(southbound.sessions.keys()))
+                items = [c for c in (store.latest_calibration(m) for m in mods) if c]
+                return self._json({"items": items})
 
             if path == "/v1/evidence":
                 envs = store.query(kind=q.get("kind"), module=q.get("module"),
@@ -113,6 +153,19 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
 
         def do_POST(self):
             url = urlparse(self.path)
+
+            m = re.fullmatch(r"/v1/modules/([\w-]+)/release", url.path)
+            if m:
+                session = southbound.quarantined.get(m.group(1))
+                if not session:
+                    return self._problem(404, "urn:uii:problem:not-found",
+                                         f"no quarantined module '{m.group(1)}'")
+                fut = asyncio.run_coroutine_threadsafe(
+                    session.release(actor="user:api"), loop)
+                fut.result(timeout=5)
+                return self._json({"released": m.group(1),
+                                   "serial_trusted": session.serial}, 200)
+
             if url.path != "/v1/commands":
                 return self._problem(404, "urn:uii:problem:not-found", url.path)
             try:
@@ -167,7 +220,8 @@ def make_handler(store: EvidenceStore, southbound: SouthboundHub,
     return Handler
 
 
-def serve_api(store, southbound, gateway, host: str, port: int) -> ThreadingHTTPServer:
-    server = ThreadingHTTPServer((host, port), make_handler(store, southbound, gateway))
+def serve_api(store, southbound, gateway, loop, host: str, port: int) -> ThreadingHTTPServer:
+    server = ThreadingHTTPServer((host, port),
+                                 make_handler(store, southbound, gateway, loop))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server

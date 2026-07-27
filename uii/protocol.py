@@ -1,10 +1,22 @@
-"""UII southbound protocol v0.1 — JSON Lines over TCP.
+"""UII southbound protocol v0.2 — JSON Lines over TCP.
 
 One JSON object per line. CBOR replaces this framing at Stage 3 without
 changing message shapes. Message types:
 
-  module -> hub : HELLO, TELEM, ACK, PROGRESS, RESULT, PONG, BYE
-  hub -> module : HELLO_OK, QUARANTINE, CMD, PING
+  module -> hub : HELLO, ROLE_OK, TELEM, ACK, PROGRESS, RESULT, PONG, BYE
+  hub -> module : HELLO_OK, QUARANTINE, QUARANTINE_RELEASED, CMD, PING
+
+Adoption handshake (spec §5 / reference architecture §5.2):
+
+  module HELLO {proto, module_id, type, serial, fw, slot, manifest}
+  hub    HELLO_OK {hub, time, role, config}     <- role config restored here
+  module ROLE_OK {role}                          <- config applied, verified
+  (hub marks OPERATIONAL only after ROLE_OK)
+
+A quarantined module holds its socket, powered-but-mute. When a human (or
+fleet policy) releases it, the hub persists trust for the serial, sends
+QUARANTINE_RELEASED, and closes; the module's redial loop reconnects and is
+adopted on sight.
 """
 from __future__ import annotations
 
@@ -13,7 +25,7 @@ import os
 import time
 import uuid
 
-PROTO = "uii/0.1"
+PROTO = "uii/0.2"
 ENVELOPE_VERSION = "uii/0.1"
 
 

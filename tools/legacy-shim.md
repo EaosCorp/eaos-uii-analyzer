@@ -1,7 +1,15 @@
 # Legacy shim — mapping NH4MOD PROD4 onto UII
 
-Source examined 2026-07-08: `~/Desktop/NH4MOD PROD4/serial_mqtt_gateway_nh4_nox_po4.py`
+Source examined 2026-07-08: `serial_mqtt_gateway_nh4_nox_po4.py`
 (A. Williamson, 2026-03) + the C# WPF UI (`MainWindow.xaml.cs`, MQTTnet client).
+Source now lives at `~/Desktop/_cleanup-2026-07-15/zz-unclear/NH4MOD PROD4/`
+(was `~/Desktop/NH4MOD PROD4/`).
+
+> **2026-07-26: superseded by `uii/pimod/`.** Instead of a Stage-1 MQTT shim
+> alongside the legacy gateway, the gateway's hardware logic (split-PLC
+> bridge, ST9 timelines, ADC capture) was ported into a native UII module
+> agent — see `DEPLOY.md` for the cutover. This doc remains the reference
+> for what the legacy system was and how its surface maps onto UII.
 
 ## What the current system actually is
 

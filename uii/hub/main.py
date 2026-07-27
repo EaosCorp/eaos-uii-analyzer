@@ -1,45 +1,121 @@
 """Hub entrypoint.
 
-  UII_HUB_ID     hub identity           (default hub-dev-001)
-  UII_DB         evidence sqlite path   (default ./data/evidence.db)
-  UII_SB_PORT    southbound TCP port    (default 7300)
-  UII_API_PORT   HTTP API port          (default 8400)
-  UII_ALLOWED    comma list of adoptable module types
-                 (default fake-nh4,fake-po4,jarbalyzer-nh4)
+  UII_CONFIG     hub config JSON       (default ./config/hub.json if present)
+  UII_HUB_ID     hub identity          (overrides config)
+  UII_DATA       data dir              (default ./data — evidence.db, trust.json)
+  UII_SB_PORT    southbound TCP port   (default 7300; 0 = ephemeral)
+  UII_API_PORT   HTTP API port         (default 8400; 0 = ephemeral)
+  UII_ALLOWED    comma list of adoptable module types (overrides config)
+  UII_SPEED      time compression for bench runs (default 1 — REAL TIME;
+                 scales scheduler cadence only, must be 1 in the field)
+
+Run: python3 -m uii.hub.main
 """
 from __future__ import annotations
 
 import asyncio
 import os
+import threading
+from typing import Optional
 
 from .api import serve_api
 from .commands import CommandGateway
+from .config import HubConfig
 from .evidence import EvidenceStore
+from .scheduler import Scheduler
 from .southbound import SouthboundHub
 
 
+class Hub:
+    """Everything wired together; embeddable (tests, demo) or run as main."""
+
+    def __init__(self, config: Optional[HubConfig] = None,
+                 sb_port: int = 7300, api_port: int = 8400,
+                 speed: float = 1.0):
+        self.config = config or HubConfig(os.environ.get("UII_CONFIG"))
+        os.makedirs(self.config.data_dir, exist_ok=True)
+        self.store = EvidenceStore(
+            os.path.join(self.config.data_dir, "evidence.db"), self.config.hub_id)
+        self.southbound = SouthboundHub(self.store, self.config)
+        self.loop = asyncio.new_event_loop()
+        self.gateway = CommandGateway(self.store, self.southbound, self.loop)
+        self.scheduler = Scheduler(self.store, self.southbound, self.gateway,
+                                   speed=speed)
+        self._sb_port_req = sb_port
+        self._api_port_req = api_port
+        self.api_server = None
+        self._thread: Optional[threading.Thread] = None
+        self._ready = threading.Event()
+
+    # -- lifecycle ---------------------------------------------------------
+
+    def start(self):
+        """Run southbound + monitor on a background thread; API + scheduler too."""
+        self._thread = threading.Thread(target=self._run_loop, daemon=True)
+        self._thread.start()
+        self._ready.wait(timeout=10)
+        self.api_server = serve_api(self.store, self.southbound, self.gateway,
+                                    self.loop, "0.0.0.0", self._api_port_req)
+        self.api_port = self.api_server.server_address[1]
+        self.scheduler.start()
+        self.store.append("event",
+                          {"event": "hub-started", "api_port": self.api_port,
+                           "southbound_port": self.sb_port},
+                          "urn:uii:schema:event:0.1", actor="system:hub")
+        return self
+
+    def _run_loop(self):
+        asyncio.set_event_loop(self.loop)
+        ready = asyncio.Event()
+
+        async def _amain():
+            self.loop.create_task(self.southbound.monitor())
+            await self.southbound.serve("0.0.0.0", self._sb_port_req, ready)
+
+        async def _await_ready():
+            await ready.wait()
+            self.sb_port = self.southbound.port
+            self._ready.set()
+
+        self.loop.create_task(_await_ready())
+        try:
+            self.loop.run_until_complete(_amain())
+        except (KeyboardInterrupt, asyncio.CancelledError, RuntimeError):
+            pass  # RuntimeError: loop stopped by Hub.stop() mid-serve
+        finally:
+            try:
+                pending = asyncio.all_tasks(self.loop)
+                for t in pending:
+                    t.cancel()
+                self.loop.run_until_complete(
+                    asyncio.gather(*pending, return_exceptions=True))
+            except Exception:
+                pass
+            self.loop.close()
+
+    def stop(self):
+        self.scheduler.stop.set()
+        if self.api_server:
+            self.api_server.shutdown()
+        self.loop.call_soon_threadsafe(self.loop.stop)
+
+
 def main():
-    hub_id = os.environ.get("UII_HUB_ID", "hub-dev-001")
-    db = os.environ.get("UII_DB", "./data/evidence.db")
-    sb_port = int(os.environ.get("UII_SB_PORT", 7300))
-    api_port = int(os.environ.get("UII_API_PORT", 8400))
-    allowed = set(os.environ.get(
-        "UII_ALLOWED", "fake-nh4,fake-po4,jarbalyzer-nh4").split(","))
-
-    os.makedirs(os.path.dirname(db) or ".", exist_ok=True)
-    store = EvidenceStore(db, hub_id)
-    southbound = SouthboundHub(store, allowed)
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    gateway = CommandGateway(store, southbound, loop)
-    serve_api(store, southbound, gateway, "0.0.0.0", api_port)
-
-    store.append("event", {"event": "hub-started", "api_port": api_port,
-                           "southbound_port": sb_port},
-                 "urn:uii:schema:event:0.1", actor="system:hub")
-    print(f"[hub] {hub_id} · api :{api_port} · southbound :{sb_port} · db {db}")
-    loop.run_until_complete(southbound.serve("0.0.0.0", sb_port))
+    cfg_path = os.environ.get("UII_CONFIG")
+    if not cfg_path and os.path.exists("./config/hub.json"):
+        cfg_path = "./config/hub.json"
+    config = HubConfig(cfg_path)
+    hub = Hub(config,
+              sb_port=int(os.environ.get("UII_SB_PORT", 7300)),
+              api_port=int(os.environ.get("UII_API_PORT", 8400)),
+              speed=float(os.environ.get("UII_SPEED", 1)))
+    hub.start()
+    print(f"[hub] {config.hub_id} · api :{hub.api_port} · southbound :{hub.sb_port} "
+          f"· data {config.data_dir} · roles {list(config.roles)}")
+    try:
+        hub._thread.join()
+    except KeyboardInterrupt:
+        hub.stop()
 
 
 if __name__ == "__main__":

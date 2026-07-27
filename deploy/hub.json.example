@@ -1,0 +1,15 @@
+{
+  "hub_id": "hub-field-001",
+  "allowed_types": ["nh4mod-nh4", "nh4mod-nox", "nh4mod-po4"],
+  "roles": {
+    "slot-1": {
+      "role": "nh4-influent",
+      "analyte": "NH4",
+      "sample_interval_s": 900,
+      "cal_max_age_s": 604800,
+      "calibrate_std_conc": 5.0,
+      "auto_take_control": false,
+      "auto_calibrate": false
+    }
+  }
+}
