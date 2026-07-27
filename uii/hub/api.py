@@ -6,7 +6,7 @@
                                                   params, risk, preconditions
   GET  /v1/modules/{id}/history                   the digital record: swaps,
                                                   calibrations, service events
-  GET  /v1/observations[?channel=&module=&since=] · /v1/observations/latest
+  GET  /v1/observations[?channel=&module=&since=|&last=N] · /v1/observations/latest
   GET  /v1/calibrations[?module=]
   GET  /v1/evidence [·/{id} ·/{id}/lineage]       one query surface
   GET  /v1/events                                 SSE, Last-Event-ID resume
@@ -124,11 +124,21 @@ def make_handler(hub):
                                 for s in southbound.sessions.values()]})
 
             if path == "/v1/observations":
-                envs = store.query(kind="observation",
-                                   module=q.get("module"),
-                                   channel=q.get("channel"),
-                                   since_seq=int(q.get("since", 0)),
-                                   limit=int(q.get("limit", 200)))
+                # ?last=N returns the N most recent matches (ascending order,
+                # trend-ready); otherwise a forward cursor walk from ?since=
+                if q.get("last"):
+                    envs = store.query(kind="observation",
+                                       module=q.get("module"),
+                                       channel=q.get("channel"),
+                                       descending=True,
+                                       limit=int(q["last"]))
+                    envs.reverse()
+                else:
+                    envs = store.query(kind="observation",
+                                       module=q.get("module"),
+                                       channel=q.get("channel"),
+                                       since_seq=int(q.get("since", 0)),
+                                       limit=int(q.get("limit", 200)))
                 return self._json({"items": envs,
                                    "next_cursor": envs[-1]["sequence"] if envs else None})
 

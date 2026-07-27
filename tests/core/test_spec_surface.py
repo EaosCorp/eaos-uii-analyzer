@@ -136,3 +136,21 @@ class TestExposedCommands(unittest.TestCase):
         self.assertEqual(code, 422)
         self.assertEqual(resp2["type"], "urn:uii:problem:precondition-failed")
         self.assertIn("requires state=idle", resp2["detail"])
+
+
+class TestObservationsLastWindow(unittest.TestCase):
+    def test_last_returns_newest_ascending(self):
+        b = Bench(roles={"slot-1": {"role": "nh4-manual", "analyte": "NH4"}})
+        try:
+            b.spawn("ref-t", "slot-1")
+            wait_for(lambda: b.state_of("ref-t") == "OPERATIONAL", what="adoption")
+            run_cmd(b.base, "ref-t", "calibrate", {"std_conc": 5.0})
+            for _ in range(3):
+                run_cmd(b.base, "ref-t", "sample")
+            out = get(b.base, "/v1/observations?channel=nh4&last=2")["items"]
+            self.assertEqual(len(out), 2)
+            self.assertLess(out[0]["sequence"], out[1]["sequence"])   # ascending
+            allobs = get(b.base, "/v1/observations?channel=nh4&limit=50")["items"]
+            self.assertEqual(out[-1]["sequence"], allobs[-1]["sequence"])  # newest
+        finally:
+            b.close()
