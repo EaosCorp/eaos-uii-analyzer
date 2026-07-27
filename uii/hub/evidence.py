@@ -102,6 +102,7 @@ class EvidenceStore:
         return json.loads(row[0]) if row else None
 
     def query(self, *, kind: Optional[str] = None, module: Optional[str] = None,
+              channel: Optional[str] = None,
               command_id: Optional[str] = None,
               correlation_id: Optional[str] = None, since_seq: int = 0,
               since_time: Optional[str] = None, until_time: Optional[str] = None,
@@ -114,6 +115,9 @@ class EvidenceStore:
         if module:
             sql += " AND module=?"
             args.append(module)
+        if channel:
+            sql += " AND channel=?"
+            args.append(channel)
         if command_id:
             sql += " AND command_id=?"
             args.append(command_id)

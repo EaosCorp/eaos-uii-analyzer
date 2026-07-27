@@ -123,11 +123,20 @@ class Hub:
             self.loop.close()
 
     def stop(self):
+        """Safe to call more than once (a restart test's finally block
+        must never mask the real failure)."""
+        self.southbound.draining = True
         for svc in self.services:
             svc.stop.set()
         if self.api_server:
             self.api_server.shutdown()
-        self.loop.call_soon_threadsafe(self.loop.stop)
+            self.api_server = None
+        try:
+            self.loop.call_soon_threadsafe(self.loop.stop)
+        except RuntimeError:
+            pass  # loop already closed
+        if self._thread:
+            self._thread.join(timeout=5)
 
 
 def main():

@@ -26,9 +26,53 @@ import asyncio
 from collections import OrderedDict
 from typing import Optional
 
+import time
+
 from ..protocol import now_iso, uuid7
 from .evidence import EvidenceStore
 from .southbound import SouthboundHub
+
+
+def validate_params(spec: dict, params: dict) -> Optional[str]:
+    """Validate params against a command's declared param spec:
+       {"std_conc": {"type": "number", "required": true, "min": 0.01}}
+    Returns an error string or None. Unknown params are rejected — a typo
+    should fail loudly, not get silently ignored by the module."""
+    params = params or {}
+    for name in params:
+        if name not in spec:
+            return f"unknown param '{name}' (declared: {sorted(spec)})"
+    for name, rule in spec.items():
+        if not isinstance(rule, dict):
+            continue   # informal/legacy declaration: descriptive string only
+        if rule.get("required") and name not in params:
+            return f"missing required param '{name}'"
+        if name not in params:
+            continue
+        value = params[name]
+        want = rule.get("type")
+        if want == "number" and not isinstance(value, (int, float)) or            want == "string" and not isinstance(value, str) or            want == "boolean" and not isinstance(value, bool):
+            return f"param '{name}' must be a {want}"
+        if isinstance(value, (int, float)):
+            if "min" in rule and value < rule["min"]:
+                return f"param '{name}' below minimum {rule['min']}"
+            if "max" in rule and value > rule["max"]:
+                return f"param '{name}' above maximum {rule['max']}"
+    return None
+
+
+def failed_precondition(preconditions, session) -> Optional[str]:
+    """Declared preconditions let clients and agents get an instant,
+    predictable rejection instead of a module round-trip. Vocabulary:
+    "state:idle" (module_state) · "mode:ENDPOINT" (control mode). A
+    condition on a value the hub hasn't learned yet passes through — the
+    module still arbitrates. Unknown keys are ignored (forward compat)."""
+    for cond in preconditions or []:
+        key, _, want = str(cond).partition(":")
+        have = {"state": session.module_state, "mode": session.mode}.get(key)
+        if key in ("state", "mode") and have is not None and have != want:
+            return f"requires {key}={want}, module reports {key}={have}"
+    return None
 
 
 class AllowAllPolicy:
@@ -88,6 +132,17 @@ class CommandGateway:
             return None, self._reject(module_id, cmd_type, actor,
                                       "urn:uii:problem:validation",
                                       "params must be an object")
+        spec = declared[cmd_type].get("params")
+        if isinstance(spec, dict):
+            err = validate_params(spec, params or {})
+            if err:
+                return None, self._reject(module_id, cmd_type, actor,
+                                          "urn:uii:problem:validation", err)
+        err = failed_precondition(declared[cmd_type].get("preconditions"),
+                                  session)
+        if err:
+            return None, self._reject(module_id, cmd_type, actor,
+                                      "urn:uii:problem:precondition-failed", err)
 
         risk = declared[cmd_type].get("risk", "routine")
         decision = self.policy.decide(actor, risk, ingress)
@@ -96,9 +151,11 @@ class CommandGateway:
                                       decision[1], decision[2])
 
         command_id = uuid7()
+        expires_at = time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                   time.gmtime(time.time() + expires_in_s))
         data = {"command_id": command_id, "type": cmd_type,
                 "params": params or {}, "target": module_id, "risk": risk,
-                "ingress": ingress, "expires_at": now_iso()}
+                "ingress": ingress, "expires_at": expires_at}
         deferred = isinstance(decision, tuple) and decision[0] == "defer"
         if deferred:
             data.update(decision[1] or {})
@@ -153,6 +210,32 @@ class CommandGateway:
             "derived": [o for o in by_kind.get("observation", [])
                         if o.get("schema", "").startswith("urn:uii:schema:observation.concentration")],
         }
+
+    def cancel(self, command_id: str, actor: str = "user:local"
+               ) -> tuple[Optional[dict], Optional[dict]]:
+        """Cooperative cancel (spec 6.3): audited, and the module is asked
+        to abort. The module decides what stopping safely means; the
+        command still terminates in exactly one result either way."""
+        st = self.status(command_id)
+        if not st:
+            return None, {"type": "urn:uii:problem:not-found",
+                          "title": "no such command",
+                          "detail": command_id}
+        if st["result"]:
+            return None, {"type": "urn:uii:problem:validation",
+                          "title": "already terminal",
+                          "detail": f"command already ended: "
+                                    f"{st['result']['data'].get('status')}"}
+        module_id = (st["command"] or {}).get("source", {}).get("module")
+        self.store.append(
+            "audit", {"event": "cancel-requested", "of_command": command_id},
+            "urn:uii:schema:audit:0.1", module=module_id, actor=actor,
+            trace={"command_id": command_id, "correlation_id": command_id})
+        abort_env, problem = self.submit(module_id, "abort", {}, actor=actor)
+        if problem:
+            return None, problem
+        return {"cancel_of": command_id,
+                "abort_command_id": abort_env["data"]["command_id"]}, None
 
     def _reject(self, module_id, cmd_type, actor, problem, detail) -> dict:
         self.store.append(

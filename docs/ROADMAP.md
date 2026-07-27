@@ -17,6 +17,22 @@
 | `hub.module_row_enrichers` | /v1/modules columns | detections (NE107 status) |
 | `hub.add_service(thread)` | background engines | scheduler, detections |
 
+## Recently landed in core (from the original spec/playbook notes)
+
+Exposed command surface: `/v1/modules/{id}/commands` + `uii commands` —
+every command with param schema, risk, declared **preconditions**
+("state:idle", "mode:ENDPOINT"), and typical duration; the gateway
+validates params against the declared schema and pre-rejects failed
+preconditions with `precondition-failed`, so clients and agents predict
+rejections instead of discovering them (spec §5.2/§6.3). Cooperative
+cancel (`/v1/commands/{id}/cancel`). `/.well-known/uii` discovery.
+`/v1/modules/{id}/history` (the digital record) and the
+`/v1/observations` query. And the playbook's Stage 1–2 exit demo in
+software: **the hub can power-cycle mid-run** — modules buffer
+ack/progress/result through hub loss, the hub recovers command context
+from the store, and a restart is never mistaken for a module loss
+(one result per command survives both directions; tested).
+
 ## Staged (on the `staged` branch in `extensions/`, tested, enable via `"extensions": [...]`)
 
 ### analyzer — the field chemical-analyzer profile
