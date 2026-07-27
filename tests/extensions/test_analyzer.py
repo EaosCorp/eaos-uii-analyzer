@@ -102,11 +102,14 @@ class TestPimodFieldAgent(unittest.TestCase):
             what="serial trace envelope")
 
     def test_endpoint_cycle_sends_real_st9(self):
-        # sample refused while the PLC has authority
+        # sample refused while the PLC has authority — now PREDICTED at the
+        # hub via the declared mode:ENDPOINT precondition (no module trip)
+        wait_for(lambda: (self.b.module("pimod-a") or {}).get("mode") == "BRIDGE",
+                 what="hub sees BRIDGE")
         code, resp = cmd(self.b.base, "pimod-a", "sample")
-        st = wait_for(lambda: cmd_done(self.b.base, resp["command_id"]),
-                      what="not-endpoint rejection")
-        self.assertIn("Not in ENDPOINT", st["ack"]["data"]["reason"])
+        self.assertEqual(code, 422)
+        self.assertEqual(resp["type"], "urn:uii:problem:precondition-failed")
+        self.assertIn("requires mode=ENDPOINT", resp["detail"])
 
         code, resp = cmd(self.b.base, "pimod-a", "take_control")
         wait_for(lambda: cmd_done(self.b.base, resp["command_id"]),
