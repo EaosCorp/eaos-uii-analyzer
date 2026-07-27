@@ -17,7 +17,7 @@
 | `hub.module_row_enrichers` | /v1/modules columns | detections (NE107 status) |
 | `hub.add_service(thread)` | background engines | scheduler, detections |
 
-## Staged (in `extensions/`, tested, enable via `"extensions": [...]`)
+## Staged (on the `staged` branch in `extensions/`, tested, enable via `"extensions": [...]`)
 
 ### analyzer — the field chemical-analyzer profile
 NOX three-channel interpretation (NO3 = NOX − NO2 with physical-validity

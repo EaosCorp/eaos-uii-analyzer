@@ -73,8 +73,8 @@ uii --json evidence --kind identity --module nh4mod-01   # life story
    agent side door. Manifest-declared `risk` gates what an agent runs
    alone: `routine` yes; `disruptive` returns `approval_required` + an
    approval id a human grants or denies (both audited); `hazardous` always
-   needs a human, for everyone. Enforced in `uii/hub/authority.py` +
-   `commands.py`.
+   needs a human, for everyone. Enforced by the authority extension
+   (staged branch) through the core gateway's policy hook.
 2. Authority also binds to **connectivity**: each ingress path has an
    absolute risk ceiling (cellular/OT are capped at `routine`; approval
    cannot launder a request over a capped path). One `local` path is wired

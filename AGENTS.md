@@ -31,7 +31,7 @@ are exposed to you.
 ```bash
 python3 -m unittest discover -t . -s tests    # all suites, ~50 s, must be OK
 python3 demo.py                               # core seam, ~20 s, DEMO OK
-python3 demo_full.py                          # all extensions, ~90 s, DEMO OK
+python3 demo_full.py                          # staged branch: all extensions, ~90 s
 ```
 
 Both must pass before any commit. The demo checks every claim against the
@@ -84,7 +84,7 @@ extensions/            staged plugins, each a setup(hub): analyzer/ (pimod
                        authority/, exports/
 tests/core + tests/extensions   unittest; helpers.py spins real hubs with
                        chosen extensions on ephemeral ports
-deploy/ + DEPLOY.md    field install (systemd, cutover, rollback)
+deploy/ + DEPLOY.md    field install (staged branch: systemd, cutover, rollback)
 docs/                  architecture.md ROADMAP.md detections.md
                        agent-interface.md
 ```
