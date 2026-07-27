@@ -81,7 +81,15 @@ swap, evidence, alerts, scheduling, and the agent surface come for free.**
 ## 3. The evidence model
 
 Nothing leaves the device as a bare number: every fact is one canonical
-record carrying source identity, timestamp, quality, unit, and provenance.
+record carrying source identity, timestamp, quality, unit, and provenance
+— and every *derived* value additionally carries a machine-readable
+**permitted-use designation** (`control` / `reporting` / `none`), assigned
+from its quality attribution (calibration presence, interpretation
+outcome). A result that isn't fit for automated action says so on its
+face, and automated consumers (the scheduler today, the OT adapter when it
+lands) are required to honor it — a value never silently graduates from
+"number we logged" to "number that moved a pump."
+
 Every fact is an envelope: `id` (UUIDv7), per-hub gap-free `sequence`,
 `kind` (closed set: observation, state, event, command, ack, progress,
 result, calibration, health, identity, config, audit …), `source`
@@ -257,7 +265,12 @@ own, and the ceilings take effect with zero gateway changes.
 
 The gateway's verbs are exactly three — **validate, reject, or defer** — and
 every outcome is written back as evidence with lineage to the input, the
-actor involved, the approval status, and the time of write-back. The
+actor involved, the approval status, the ingress path identity, and the
+time of write-back. In Eaos authority vocabulary the four outcomes are the
+four levels: **Autonomous** (allowed alone), **Staged** (prepared but held
+for human approval — the pending-approval flow), **Advisory** (the system
+recommends, never executes — detections live here), and **Prohibited**
+(path-ceiling and structural refusals no approval can override). The
 approval flow: `audit{approval-pending}` → `audit{approval-granted|denied}`
 (approver must be human, never the requester) → dispatch or terminal
 `result{rejected|expired}`. Pending approvals live at `/v1/approvals`;

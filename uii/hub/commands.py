@@ -93,9 +93,11 @@ class CommandGateway:
                 f"over this path")
 
         command_id = uuid7()
+        # ingress = path identity: which way the request arrived is part of
+        # the evidence, not just part of the authority check
         data = {"command_id": command_id, "type": cmd_type,
                 "params": params or {}, "target": module_id, "risk": risk,
-                "expires_at": now_iso()}
+                "ingress": ingress, "expires_at": now_iso()}
         if decision == "approval":
             approval_id = uuid7()
             data["approval_id"] = approval_id

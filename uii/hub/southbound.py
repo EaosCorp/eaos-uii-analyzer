@@ -307,17 +307,26 @@ class ModuleSession:
         elif cmd_type == "sample" and captures:
             cal = store.latest_calibration(self.module_id)
             fit = (cal or {}).get("data", {}).get("fit", {})
+            # quality attribution -> a machine-readable PERMITTED-USE
+            # designation, so a result is never an unaudited bare number:
+            # "control" (fit for automated action), "reporting" (records/
+            # display only), "none" (no valid interpretation). Automated
+            # consumers (scheduler, future OT adapter) must honor it.
             if cal and calibration_complete(analyte, fit):
                 res = interpret_sample(analyte, fit, captures)
-                quality = ({"status": "good", "flags": []} if not res["error"]
-                           else {"status": "bad", "flags": ["interpretation_error"]})
+                quality = ({"status": "good", "flags": [],
+                            "permitted_use": "control"} if not res["error"]
+                           else {"status": "bad",
+                                 "flags": ["interpretation_error"],
+                                 "permitted_use": "reporting"})
             else:
                 res = {"channels": [{"name": c, "value": None, "unit": "mg/L",
                                      "absorbance": None}
                                     for c in ([analyte.lower()] if analyte != "NOX"
                                               else ["nox", "no2", "no3"])],
                        "error": "no calibration"}
-                quality = {"status": "bad", "flags": ["no_calibration"]}
+                quality = {"status": "bad", "flags": ["no_calibration"],
+                           "permitted_use": "none"}
             for ch in res["channels"]:
                 store.append(
                     "observation",

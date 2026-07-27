@@ -67,7 +67,8 @@ class TestManualPath(unittest.TestCase):
         wait_for(lambda: (self.b.module("manual-a") or {}).get("mode") == "ENDPOINT",
                  what="mode ENDPOINT")
 
-        # sampling before any calibration -> value None, flagged no_calibration
+        # sampling before any calibration -> value None, flagged
+        # no_calibration, and permitted for NOTHING automated
         code, resp = cmd(self.b.base, "manual-a", "sample")
         st = wait_for(lambda: cmd_done(self.b.base, resp["command_id"]),
                       timeout=60, what="uncalibrated sample")
@@ -75,6 +76,7 @@ class TestManualPath(unittest.TestCase):
         self.assertTrue(derived)
         self.assertIsNone(derived[0]["data"]["value"])
         self.assertIn("no_calibration", derived[0]["quality"]["flags"])
+        self.assertEqual(derived[0]["quality"]["permitted_use"], "none")
 
         # calibrate, then sample -> a good number near the sim's hidden truth
         code, resp = cmd(self.b.base, "manual-a", "calibrate", {"std_conc": 5.0})
@@ -90,6 +92,10 @@ class TestManualPath(unittest.TestCase):
                       timeout=60, what="sample")
         obs = st["derived"][-1]
         self.assertEqual(obs["quality"]["status"], "good")
+        # calibrated + good -> permitted for automated use ("control")
+        self.assertEqual(obs["quality"]["permitted_use"], "control")
+        # and the command evidence records its ingress path identity
+        self.assertEqual(st["command"]["data"]["ingress"], "local")
         # sim truth: 4.5 +/- 25% swing
         self.assertGreater(obs["data"]["value"], 2.5)
         self.assertLess(obs["data"]["value"], 6.5)
