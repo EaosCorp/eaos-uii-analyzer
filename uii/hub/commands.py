@@ -23,12 +23,11 @@ plus command_state() so /v1/commands/{id} can report "pending-approval".
 from __future__ import annotations
 
 import asyncio
+import time
 from collections import OrderedDict
 from typing import Optional
 
-import time
-
-from ..protocol import now_iso, uuid7
+from ..protocol import uuid7
 from .evidence import EvidenceStore
 from .southbound import SouthboundHub
 
