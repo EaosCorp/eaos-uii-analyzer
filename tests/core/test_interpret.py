@@ -1,5 +1,4 @@
 """Interpretation math — must match the deployed gateway's behavior exactly."""
-import math
 import unittest
 
 from uii.hub.interpret import (calibration_complete, fit_calibration,

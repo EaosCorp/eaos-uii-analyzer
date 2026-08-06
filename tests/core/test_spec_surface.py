@@ -75,8 +75,6 @@ class TestSpecSurfaces(unittest.TestCase):
         self.assertEqual(code, 422)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestExposedCommands(unittest.TestCase):
@@ -154,3 +152,7 @@ class TestObservationsLastWindow(unittest.TestCase):
             self.assertEqual(out[-1]["sequence"], allobs[-1]["sequence"])  # newest
         finally:
             b.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

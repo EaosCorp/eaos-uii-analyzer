@@ -67,7 +67,7 @@ python3 -m uii.cli lineage <evidence-id>      # why is this number this way
 | 3 | `uii/hub/southbound.py` (~300) | recognize & adopt: VERIFYING → role-config push → OPERATIONAL; quarantine + one-call release with persistent trust |
 | 4 | `uii/hub/commands.py` (~170) | the one gate: manifest validation, policy hook, one result per command, idempotent retries |
 | 5 | `uii/hub/interpret.py` (~200) | facts → interpretations: two-point fit, mg/L with calibration lineage and a **permitted-use designation** (control / reporting / none) |
-| 6 | `uii/refmod.py` (~250) | the other half of the seam: the smallest honest module. Building a camera or pump class? Start here |
+| 6 | `uii/refmod.py` (~270) | the other half of the seam: the smallest honest module. Building a camera or pump class? Start here |
 
 Supporting cast: `uii/hub/config.py` (roles, trust, extension switchboard),
 `uii/hub/api.py` (/v1 REST + SSE), `uii/hub/main.py` (wiring + the
