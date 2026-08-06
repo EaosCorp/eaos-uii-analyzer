@@ -30,7 +30,6 @@ import io
 import json
 import tarfile
 import time
-from typing import Optional
 
 from uii.hub.evidence import EvidenceStore
 

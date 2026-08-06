@@ -18,10 +18,10 @@ injection — resolved properly when the panel actor/ceiling lands.
 
 Enable: "extensions": ["faceplate"] in hub.json -> http://<hub>:8400/faceplate
 """
-import os
+import pathlib
 
-_PAGE = open(os.path.join(os.path.dirname(__file__), "page.html"),
-             encoding="utf-8").read().encode()
+_PAGE = (pathlib.Path(__file__).parent / "page.html").read_text(
+    encoding="utf-8").encode()
 
 
 def setup(hub):

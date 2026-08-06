@@ -2,7 +2,6 @@
 synthetic envelopes (no processes), plus one live-bench integration case."""
 import os
 import tempfile
-import time
 import unittest
 
 from extensions.detections.engine import Detections

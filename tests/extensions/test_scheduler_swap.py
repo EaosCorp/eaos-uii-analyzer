@@ -54,8 +54,6 @@ class TestSwapDrill(unittest.TestCase):
         self.assertEqual(hist_a[-1]["data"]["event"], "removed")
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestCalRequiredGate(unittest.TestCase):
@@ -74,3 +72,7 @@ class TestCalRequiredGate(unittest.TestCase):
             self.assertIsNone(b.good_obs("mod-a", "nh4"))
         finally:
             b.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

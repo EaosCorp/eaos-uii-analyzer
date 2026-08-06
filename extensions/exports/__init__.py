@@ -7,7 +7,6 @@ flag; contiguous slices re-verify offline. `uii export -o bundle.tgz`.
 Hook used: one POST route (/v1/exports, binary response).
 Enable: "extensions": ["exports"] in hub.json.
 """
-import json
 
 
 def setup(hub):
