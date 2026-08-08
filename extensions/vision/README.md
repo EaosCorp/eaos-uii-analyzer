@@ -35,6 +35,25 @@ GET /v1/frames/<sha256>              # a specific frame by hash
 The CV always runs on the local full-quality frame on the box (no transfer);
 only these fetches cross the wire, and only as small as you ask.
 
+## Remote access (tailnet + token)
+
+`edge.py` keeps module traffic on loopback (`UII_SB_BIND=127.0.0.1`) and faces
+the API at `UII_API_BIND=0.0.0.0`, reachable over Tailscale (ACL-gated,
+WireGuard-encrypted), not the internet. If a tokens file is present
+(`UII_API_TOKENS`, default `/etc/eaos/uii-api-tokens.json`) the whole API
+requires a bearer token (`auth.py`):
+
+- **operator** token → GET + POST commands.
+- **viewer** token → GET only (frames/observations); a POST is 403.
+
+```bash
+curl -H "Authorization: Bearer <viewer-token>" \
+  http://<box-tailscale-ip>:8400/v1/modules/campod-01/frame -o frame.jpg
+```
+
+No tokens file => open mode (localhost dev / tests). Set
+`UII_API_BIND=127.0.0.1` to keep the API local-only.
+
 ## Commissioning (aim it at a real basin)
 
 Adopted and streaming is not yet measuring. To turn a view into a trusted foam

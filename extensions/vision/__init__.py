@@ -95,5 +95,14 @@ def setup(hub):
     hub.api_get_routes.append((r"/v1/frames/([0-9a-f]{64})", by_hash))
     hub.api_get_routes.append((r"/v1/modules/([\w-]+)/frame", latest))
 
+    # bearer-token API auth, if a tokens file is present (edge deployment).
+    # Absent => open mode (localhost dev / tests). See auth.py.
+    from .auth import load_tokens, make_token_auth
+    tokens = load_tokens(os.environ.get("UII_API_TOKENS",
+                                        "/etc/eaos/uii-api-tokens.json"))
+    if tokens:
+        hub.api_auth = make_token_auth(tokens)
+        print(f"[vision] API token auth ON ({len(tokens)} token(s))", flush=True)
+
     # expose the shared handles for tests / other extensions
     hub.vision = {"blobs": blobs, "state": state, "frames_dir": frames_dir}

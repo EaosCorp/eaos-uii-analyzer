@@ -38,8 +38,12 @@ def load_creds(path=CREDS):
 
 def main():
     load_creds()
-    # hub + campod are co-located; nothing external needs the API/southbound.
-    os.environ.setdefault("UII_BIND", "127.0.0.1")
+    # Module traffic (southbound) stays on loopback — campod is on this box.
+    # The API faces the tailnet by default so you can fetch frames from your
+    # laptop; it is protected by the bearer-token gate (UII_API_TOKENS). Set
+    # UII_API_BIND=127.0.0.1 to keep it local-only.
+    os.environ.setdefault("UII_SB_BIND", "127.0.0.1")
+    os.environ.setdefault("UII_API_BIND", "0.0.0.0")
     data_dir = os.environ.get("UII_DATA", "/var/lib/eaos/uii-data")
     frames_dir = os.environ.setdefault("UII_FRAMES_DIR", "/var/lib/eaos/frames")
     module_id = os.environ.get("UII_MODULE_ID", "campod-01")

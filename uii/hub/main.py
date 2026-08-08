@@ -85,8 +85,10 @@ class Hub:
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
         self._ready.wait(timeout=10)
-        self.api_server = serve_api(self, os.environ.get("UII_BIND", "0.0.0.0"),
-                                    self._api_port_req)
+        self.api_server = serve_api(
+            self,
+            os.environ.get("UII_API_BIND", os.environ.get("UII_BIND", "0.0.0.0")),
+            self._api_port_req)
         self.api_port = self.api_server.server_address[1]
         for svc in self.services:
             svc.start()
@@ -109,8 +111,9 @@ class Hub:
         self.loop.create_task(_await_ready())
         try:
             self.loop.run_until_complete(
-                self.southbound.serve(os.environ.get("UII_BIND", "0.0.0.0"),
-                                      self._sb_port_req, ready))
+                self.southbound.serve(
+                    os.environ.get("UII_SB_BIND", os.environ.get("UII_BIND", "0.0.0.0")),
+                    self._sb_port_req, ready))
         except (KeyboardInterrupt, asyncio.CancelledError, RuntimeError):
             pass  # RuntimeError: loop stopped by Hub.stop() mid-serve
         finally:
