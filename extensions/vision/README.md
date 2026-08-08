@@ -87,9 +87,12 @@ UII_SIM=1  UII_SIM_COVERAGE 25  UII_SIM_FOAM nuisance_white|biological_brown  UI
 The core is stdlib-only; this extension adds **numpy** (CV) and **Pillow**
 (PNG encode/decode). `pip install numpy pillow`.
 
-## Next observable: level/weir
+## Next observable: level/weir (template started)
 
-The seam is `foam_cv.py`. A second observable is another `detect`-style module
-plus channels in the manifest; adoption, evidence, alerts, and the agent
-surface do not change. Level/weir (edge/line detection, reuses the pixel-scale
-reference record) is the planned next one.
+`level_cv.py` is the **template** for the second observable — a working but
+uncalibrated `detect()` (edge-based waterline; `level` and `weir` siblings)
+that shows adding an observable is a known move: a `detect()` over a frame +
+ROI, channels in the manifest, and a role_config flag. Adoption, evidence,
+alerts, and the agent surface do not change. The three TODOs (pixel scale,
+weir-crest datum, threshold tuning) plus the wiring checklist are in that file's
+footer. It is **not wired into a live role** — finish and validate it first.
