@@ -19,8 +19,48 @@ from __future__ import annotations
 import os
 
 from .blobstore import FrameBlobStore
+from .framesource import recompress
 from .interpreter import VisionState, make_vision_interpreter
 from .service import FoamService
+
+
+def _int(v, default):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _serve_jpeg(handler, data, q):
+    """Serve a stored frame small by default (cellular). ?full=1 for original,
+    ?w=<px> to cap width, ?q=<1-95> for quality."""
+    full = q.get("full") in ("1", "true", "yes")
+    out = data if full else recompress(data, max_w=_int(q.get("w"), 1280),
+                                       quality=_int(q.get("q"), 70))
+    handler.send_response(200)
+    handler.send_header("Content-Type", "image/jpeg")
+    handler.send_header("Content-Length", str(len(out)))
+    handler.send_header("Cache-Control", "public, max-age=31536000, immutable")
+    handler.end_headers()
+    handler.wfile.write(out)
+
+
+def _frame_routes(store, blobs):
+    def by_hash(handler, m, q):
+        data = blobs.get(m.group(1))
+        if not data:
+            return handler._problem(404, "urn:uii:problem:not-found", "no such frame")
+        _serve_jpeg(handler, data, q)
+
+    def latest(handler, m, q):
+        obs = store.latest_observation(m.group(1), "frames")
+        digest = ((obs or {}).get("data") or {}).get("frame_hash")
+        data = blobs.get(digest) if digest else None
+        if not data:
+            return handler._problem(404, "urn:uii:problem:not-found", "no frame for module")
+        _serve_jpeg(handler, data, q)
+
+    return by_hash, latest
 
 
 def _foam_enricher(store):
@@ -48,6 +88,12 @@ def setup(hub):
     hub.southbound.interpreters["vision"] = make_vision_interpreter(blobs, state)
     hub.add_service(FoamService(hub.store, hub.southbound, blobs, state))
     hub.module_row_enrichers.append(_foam_enricher(hub.store))
+
+    # image fetch — compressed by default (cellular). Full frame by hash, or the
+    # latest frame per module. GET /v1/frames/<sha256> · /v1/modules/<id>/frame
+    by_hash, latest = _frame_routes(hub.store, blobs)
+    hub.api_get_routes.append((r"/v1/frames/([0-9a-f]{64})", by_hash))
+    hub.api_get_routes.append((r"/v1/modules/([\w-]+)/frame", latest))
 
     # expose the shared handles for tests / other extensions
     hub.vision = {"blobs": blobs, "state": state, "frames_dir": frames_dir}

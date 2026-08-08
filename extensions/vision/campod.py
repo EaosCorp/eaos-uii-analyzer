@@ -35,7 +35,7 @@ from collections import deque
 from uii.protocol import PROTO, encode, now_iso
 
 from .blobstore import FrameBlobStore
-from .framesource import make_source, to_png_bytes
+from .framesource import make_source, encode_jpeg, downscale
 
 
 class CamModule:
@@ -49,6 +49,8 @@ class CamModule:
         self.hub_addr = (host, int(port))
         self.speed = max(float(e.get("UII_SPEED", 1)), 1e-6)
         self.cadence_s = float(e.get("UII_CADENCE_S", 10))
+        self.jpeg_q = int(e.get("UII_JPEG_QUALITY", 85))
+        self.max_w = int(e.get("UII_FRAME_MAX_W", 1920))   # store downscaled (cellular)
         self.blobs = FrameBlobStore(e.get("UII_FRAMES_DIR", "./data/frames"))
         self.source = make_source(e)
 
@@ -95,10 +97,13 @@ class CamModule:
     # -- the one thing this module does: turn a lens into a frame fact --------
 
     def _grab_frame(self, command=None) -> dict:
-        """Grab one frame, store the pixels by hash, return the fact payload."""
+        """Grab one frame, downscale + JPEG it, store by hash, return the fact."""
         rgb, meta = self.source.grab(command=command)
-        digest = self.blobs.put(to_png_bytes(rgb), ext="png")
+        rgb = downscale(rgb, self.max_w)
+        data = encode_jpeg(rgb, self.jpeg_q)
+        digest = self.blobs.put(data, ext="jpg")
         self.frames_captured += 1
+        meta = {**meta, "w": rgb.shape[1], "h": rgb.shape[0], "bytes": len(data)}
         return {"frame_hash": digest, **meta}
 
     def emit_frame(self, command_id=None, reference=False, on_demand=False) -> tuple[int, dict]:

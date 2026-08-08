@@ -27,20 +27,50 @@ import numpy as np
 
 
 # ---- encode / decode (Pillow) ------------------------------------------------
+# Frames are stored as JPEG, not PNG: the edge boxes are on cellular, so every
+# byte that might be transferred is a cost. JPEG at q85 is a fraction of PNG and
+# more than good enough for coverage CV (a fraction of the surface, not pixels).
 
-def to_png_bytes(rgb: np.ndarray) -> bytes:
+def encode_jpeg(rgb: np.ndarray, quality: int = 85) -> bytes:
     from PIL import Image
     arr = np.asarray(rgb)
     if arr.dtype != np.uint8:
         arr = np.clip(arr, 0, 255).astype(np.uint8)
     buf = io.BytesIO()
-    Image.fromarray(arr, "RGB").save(buf, format="PNG")
+    Image.fromarray(arr[:, :, :3], "RGB").save(buf, format="JPEG", quality=quality)
     return buf.getvalue()
 
 
 def decode(data: bytes) -> np.ndarray:
     from PIL import Image
     return np.asarray(Image.open(io.BytesIO(data)).convert("RGB"))
+
+
+def downscale(rgb: np.ndarray, max_w: int | None) -> np.ndarray:
+    """Cap width at max_w (keeps aspect). Coverage is scale-invariant, so this
+    shrinks storage, CV cost, and any full-frame transfer with no accuracy loss."""
+    arr = np.asarray(rgb)
+    h, w = arr.shape[0], arr.shape[1]
+    if not max_w or w <= max_w:
+        return arr
+    from PIL import Image
+    new_h = int(round(h * max_w / w))
+    im = Image.fromarray(arr.astype(np.uint8)[:, :, :3], "RGB").resize(
+        (max_w, new_h), Image.BILINEAR)
+    return np.asarray(im)
+
+
+def recompress(data: bytes, max_w: int | None = None, quality: int = 70) -> bytes:
+    """Decode a stored frame and re-encode small — the transfer-time squeeze for
+    API image fetches over cellular. Default 70 is visibly fine and cheap."""
+    from PIL import Image
+    im = Image.open(io.BytesIO(data)).convert("RGB")
+    if max_w and im.width > max_w:
+        nh = int(round(im.height * max_w / im.width))
+        im = im.resize((max_w, nh), Image.BILINEAR)
+    buf = io.BytesIO()
+    im.save(buf, format="JPEG", quality=quality)
+    return buf.getvalue()
 
 
 # ---- sim ---------------------------------------------------------------------

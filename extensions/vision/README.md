@@ -19,6 +19,28 @@ authority) is the universal core, unchanged. Design: `docs/vision-profile.md`.
 Both produce the same `foam_coverage` channel, each frame carrying a
 permitted-use designation (`reporting` / `none` / `control`) from image quality.
 
+## Fetch images (compressed for cellular)
+
+Frames are stored as JPEG, downscaled to 1920 wide (coverage is
+scale-invariant). The API serves them **small by default** so a transfer over
+cellular is cheap:
+
+```
+GET /v1/modules/<id>/frame           # latest frame, ~40-80 KB (1280 wide, q70)
+GET /v1/frames/<sha256>              # a specific frame by hash
+    ?w=960 ?q=60                     # smaller: ~15-40 KB
+    ?full=1                          # the stored frame (~200 KB), opt-in only
+```
+
+The CV always runs on the local full-quality frame on the box (no transfer);
+only these fetches cross the wire, and only as small as you ask.
+
+## Commissioning (aim it at a real basin)
+
+Adopted and streaming is not yet measuring. To turn a view into a trusted foam
+(or level) number — draw the ROI, capture a baseline, tune thresholds,
+validate — follow **`docs/vision-commissioning.md`**.
+
 ## Run it on the bench (sim, ~15 s)
 
 ```bash
@@ -78,6 +100,8 @@ module writes a frame and the hub interpreter reads it back by hash.
 UII_HUB 127.0.0.1:7300   UII_MODULE_ID campod-01   UII_SLOT slot-1
 UII_TYPE vision-cam      UII_SERIAL SN-...          UII_CADENCE_S 10
 UII_FRAMES_DIR ./data/frames                        UII_SPEED 1
+UII_JPEG_QUALITY 85   UII_FRAME_MAX_W 1920   (stored-frame codec; cellular)
+UII_BIND 127.0.0.1    (edge.py binds localhost by default)
 UII_SIM=1  UII_SIM_COVERAGE 25  UII_SIM_FOAM nuisance_white|biological_brown  UII_SIM_QUALITY 1.0
 (real)  CAMERA_HOST / CAMERA_USER / CAMERA_PASSWORD  (from /etc/eaos/camera-credentials.env)
 ```
