@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UII Faceplate</title>
+<style>
+:root{
+  /* industrial light — RAL-7035 panel greys */
+  --page:#c7c9c6; --surface:#d2d4d1; --surface-1:#e3e4e1; --surface-2:#edeeec;
+  --hair:rgba(38,41,36,.14); --hair2:rgba(38,41,36,.28);
+  --ink:#24271f; --ink2:#565a52; --muted:#7e8279;
+  --accent:#2e6480; --accent-dim:rgba(46,100,128,.45); --on-accent:#f2f3f1;
+  --ok:#2c7a58; --warn:#8f6516; --copper:#8c5f2e; --err:#a63c30;
+  --sel:rgba(38,41,36,.08); --hov:rgba(38,41,36,.045);
+  --r:3px; --r-lg:4px;
+  --font-ui:'IBM Plex Sans','Instrument Sans',-apple-system,'Segoe UI',sans-serif;
+  --font-mono:'IBM Plex Mono','JetBrains Mono',ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--page);color:var(--ink);font:13px/1.5 var(--font-ui);-webkit-font-smoothing:antialiased}
+.mono{font-family:var(--font-mono)}
+.eyebrow{font-size:9.5px;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+header{position:sticky;top:0;z-index:40;background:var(--surface);border-bottom:1px solid var(--hair2)}
+.hd{max-width:1180px;margin:0 auto;padding:13px 20px;display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 18px}
+.hd h1{font-size:14px;font-weight:600;margin:0;letter-spacing:.01em}
+.hd h1 .hex{color:var(--accent);margin-right:7px}
+.hd .sub{color:var(--ink2);font-size:11.5px}
+.hd .spacer{flex:1}
+.count{font-size:11.5px;color:var(--ink2);font-family:var(--font-mono)}
+.count b{color:var(--accent);font-weight:500}
+main{max-width:1180px;margin:0 auto;padding:18px 20px 60px;display:grid;gap:22px}
+section h2{font-size:9.5px;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);margin:0 0 9px}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.card{background:var(--surface-1);border:1px solid var(--hair2);border-radius:var(--r-lg);padding:12px 14px;box-shadow:0 1px 2px rgba(30,32,28,.10)}
+.card .id{font-weight:600;font-size:13px}
+.card .kv{display:flex;justify-content:space-between;font-size:11.5px;color:var(--ink2);margin-top:3px}
+.card .kv b{color:var(--ink);font-weight:500;font-family:var(--font-mono)}
+.chip{display:inline-block;padding:1px 8px;border-radius:9px;font-size:10.5px;font-weight:500;font-family:var(--font-mono)}
+.chip.ok{background:rgba(44,122,88,.14);color:var(--ok)}
+.chip.warn{background:rgba(143,101,22,.14);color:var(--warn)}
+.chip.err{background:rgba(166,60,48,.13);color:var(--err)}
+.chip.mut{background:var(--sel);color:var(--ink2)}
+.bar{height:3px;background:var(--sel);border-radius:2px;margin-top:9px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .4s}
+table{width:100%;border-collapse:collapse;background:var(--surface-1);border:1px solid var(--hair2);border-radius:var(--r-lg);overflow:hidden;box-shadow:0 1px 2px rgba(30,32,28,.10)}
+th{text-align:left;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:500;padding:8px 12px;border-bottom:1px solid var(--hair2)}
+td{padding:7px 12px;border-bottom:1px solid var(--hair);font-size:12.5px}
+tr:last-child td{border-bottom:none}
+td.v{font-family:var(--font-mono);font-size:15px;color:var(--ink)}
+.alerts .card{border-left:2px solid var(--warn)}
+.alerts .card.critical{border-left-color:var(--err)}
+.trends{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:10px}
+.tcard{background:var(--surface-1);border:1px solid var(--hair2);border-radius:var(--r-lg);padding:10px 12px 8px;box-shadow:0 1px 2px rgba(30,32,28,.10);position:relative}
+.tcard .thead{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px}
+.tcard .tname{font-size:9.5px;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.tcard .tval{font-family:var(--font-mono);font-size:17px;color:var(--ink)}
+.tcard .tval span{font-size:10.5px;color:var(--ink2)}
+.tcard svg{display:block;width:100%}
+.ttip{position:absolute;pointer-events:none;background:var(--surface-2);border:1px solid var(--hair2);border-radius:var(--r);padding:3px 8px;font-family:var(--font-mono);font-size:10.5px;color:var(--ink);white-space:nowrap;box-shadow:0 2px 6px rgba(30,32,28,.15);display:none;z-index:5}
+#ticker{background:var(--surface-2);border:1px solid var(--hair2);border-radius:var(--r-lg);padding:10px 12px;font-family:var(--font-mono);font-size:11px;color:var(--ink2);max-height:210px;overflow-y:auto}
+#ticker div{padding:1.5px 0;border-bottom:1px solid var(--hair)}
+#ticker .k{color:var(--accent);display:inline-block;min-width:86px}
+.empty{color:var(--muted);font-size:12px;padding:10px 2px}
+footer{max-width:1180px;margin:0 auto;padding:0 20px 26px;color:var(--muted);font-size:10.5px}
+</style>
+</head>
+<body>
+<header><div class="hd">
+  <h1><span class="hex">&#x2B21;</span>UII FACEPLATE</h1>
+  <span class="sub" id="hubid">connecting…</span>
+  <span class="spacer"></span>
+  <span class="count" id="sysline"></span>
+</div></header>
+<main>
+  <section><h2>Modules</h2><div class="cards" id="modules"><div class="empty">no modules yet</div></div></section>
+  <section><h2>Latest values</h2><div id="obs"><div class="empty">no observations yet</div></div></section>
+  <section id="trendsec" hidden><h2>Trends</h2><div class="trends" id="trends"></div></section>
+  <section class="alerts" id="alertsec" hidden><h2>Active alerts</h2><div class="cards" id="alerts"></div></section>
+  <section><h2>Live evidence</h2><div id="ticker"></div></section>
+</main>
+<footer>read-only faceplate — a client of /v1 like every other; commands go through the gate (CLI, API, agents)</footer>
+<script>
+const $=id=>document.getElementById(id);
+const j=async p=>{const r=await fetch(p);if(!r.ok)throw r.status;return r.json()};
+const chip=(txt,cls)=>`<span class="chip ${cls}">${txt}</span>`;
+const stateCls=s=>({OPERATIONAL:"ok",DEGRADED:"warn",QUARANTINED:"warn",REMOVED:"mut"}[s]||"mut");
+const puCls=s=>({control:"ok",reporting:"warn",none:"err"}[s]||"mut");
+const qCls=s=>({good:"ok",suspect:"warn",bad:"err"}[s]||"mut");
+const progress={};   // module -> pct (from SSE progress events)
+
+async function refresh(){
+  try{
+    const sys=await j("/v1/system");
+    $("hubid").textContent=sys.hub+" · "+(sys.extensions&&sys.extensions.length?sys.extensions.join(", "):"core");
+    $("sysline").innerHTML=`<b>${sys.modules_operational}</b> operational · up ${Math.floor(sys.uptime_s/60)}m · auth ${sys.auth}`;
+    const mods=(await j("/v1/modules")).items||[];
+    $("modules").innerHTML=mods.length?mods.map(m=>`
+      <div class="card">
+        <div class="id">${m.id} ${chip(m.state||"?",stateCls(m.state))}${m.status?" "+chip(m.status,m.status==="ok"?"ok":"warn"):""}</div>
+        <div class="kv"><span>role</span><b>${m.role||"—"}</b></div>
+        <div class="kv"><span>slot · serial</span><b>${m.slot||"—"} · ${m.serial||"—"}</b></div>
+        <div class="kv"><span>mode · state</span><b>${m.mode||"—"} · ${m.module_state||"—"}</b></div>
+        <div class="bar"><i style="width:${progress[m.id]||0}%"></i></div>
+      </div>`).join(""):'<div class="empty">no modules yet</div>';
+    const obs=(await j("/v1/observations/latest")).items||[];
+    const rows=obs.filter(o=>o.source.channel!=="detector_raw").map(o=>{
+      const q=o.quality||{};
+      return `<tr><td>${o.source.module}</td><td>${o.source.channel}</td>
+        <td class="v">${o.data.value==null?"—":o.data.value} <span style="color:var(--ink2);font-size:11px">${o.data.unit||""}</span></td>
+        <td>${chip(q.status||"?",qCls(q.status))}</td>
+        <td>${q.permitted_use?chip(q.permitted_use,puCls(q.permitted_use)):"—"}</td>
+        <td class="mono" style="color:var(--muted);font-size:10.5px">${(o.time||"").slice(11,19)}</td></tr>`;}).join("");
+    obs.filter(o=>o.source.channel!=="detector_raw").forEach(o=>ensureSeries(o.source.module,o.source.channel,o.data.unit));
+    $("obs").innerHTML=rows?`<table><tr><th>module</th><th>channel</th><th>value</th><th>quality</th><th>permitted use</th><th>utc</th></tr>${rows}</table>`
+                           :'<div class="empty">no observations yet</div>';
+    try{
+      const alerts=(await j("/v1/alerts")).items||[];
+      $("alertsec").hidden=!alerts.length;
+      $("alerts").innerHTML=alerts.map(a=>`
+        <div class="card ${a.severity==="critical"?"critical":""}">
+          <div class="id">${a.rule} ${chip(a.severity,"warn")}${a.acked?" "+chip("acked","mut"):""}</div>
+          <div class="kv"><span>${a.module}</span><b>${a.ne107||""}</b></div>
+          <div style="color:var(--ink2);font-size:11.5px;margin-top:4px">${a.message||""}</div>
+        </div>`).join("");
+    }catch(e){ $("alertsec").hidden=true; }   /* detections extension off */
+  }catch(e){ $("hubid").textContent="hub unreachable"; }
+}
+
+function tick(env){
+  const src=env.source||{}, d=env.data||{};
+  if(env.kind==="observation"&&src.channel&&src.channel!=="detector_raw"&&src.module)addPoint(env);
+  if(env.kind==="progress"&&src.module){progress[src.module]=d.pct||0;}
+  if(env.kind==="result"&&src.module){progress[src.module]=0;}
+  const line=document.createElement("div");
+  const what=d.event||d.status||d.message||(d.value!=null?d.value+" "+(d.unit||""):(d.name?d.name+"="+(d.vin!=null?d.vin+"V":""):env.kind));
+  line.innerHTML=`<span class="k">${env.kind}</span>${src.module||"hub"} · ${String(what).slice(0,90)}`;
+  const t=$("ticker"); t.prepend(line);
+  while(t.children.length>40)t.removeChild(t.lastChild);
+}
+/* ---- trends ---------------------------------------------------------- */
+const series={};   // "module|channel" -> {pts:[{t,v,q,pu,seq}],unit,el}
+const qColor=q=>({good:"var(--ok)",suspect:"var(--warn)",bad:"var(--err)"}[q]||"var(--muted)");
+
+function ensureSeries(mod,ch,unit){
+  const k=mod+"|"+ch;
+  if(series[k])return series[k];
+  const card=document.createElement("div");card.className="tcard";
+  card.innerHTML=`<div class="thead"><span class="tname">${mod} · ${ch}</span>
+    <span class="tval" data-v>—</span></div><svg height="160"></svg><div class="ttip"></div>`;
+  $("trends").appendChild(card);$("trendsec").hidden=false;
+  const st=series[k]={pts:[],unit:unit||"",el:card,lastSeq:0};
+  j(`/v1/observations?module=${mod}&channel=${ch}&last=80`).then(r=>{
+    (r.items||[]).forEach(o=>addPoint(o,true));draw(st);}).catch(()=>{});
+  return st;
+}
+function addPoint(o,fromBackfill){
+  const ch=o.source.channel;if(ch==="detector_raw")return;
+  const st=ensureSeries(o.source.module,ch,o.data.unit);
+  if(o.sequence<=st.lastSeq)return;
+  st.lastSeq=o.sequence;
+  if(o.data.value==null)return;                    // gaps: unfit values live in the table
+  const t=Date.parse(o.time),last=st.pts[st.pts.length-1];
+  if(last&&t<=last.t)return;                       // dedupe replays / out-of-order
+  const q=o.quality||{};
+  st.pts.push({t:t,v:o.data.value,q:q.status,pu:q.permitted_use,
+               tm:(o.time||"").slice(11,19)});
+  if(st.pts.length>150)st.pts.shift();
+  if(!fromBackfill)draw(st);
+}
+function draw(st){
+  const svg=st.el.querySelector("svg"),W=st.el.clientWidth-24||400,H=160,
+        padL=6,padR=8,padT=10,padB=16,pts=st.pts;
+  svg.setAttribute("viewBox",`0 0 ${W} ${H}`);
+  st.el.querySelector("[data-v]").innerHTML=pts.length?
+    `${pts[pts.length-1].v} <span>${st.unit}</span>`:"—";
+  if(pts.length<2){svg.innerHTML=`<text x="${W/2}" y="${H/2}" text-anchor="middle" fill="var(--muted)" font-size="11" font-family="var(--font-ui)">collecting…</text>`;return;}
+  const vs=pts.map(p=>p.v),vmin=Math.min(...vs),vmax=Math.max(...vs),
+        span=(vmax-vmin)||1,lo=vmin-span*.12,hi=vmax+span*.12,
+        t0=pts[0].t,t1=pts[pts.length-1].t||t0+1,
+        X=t=>padL+((t-t0)/((t1-t0)||1))*(W-padL-padR),
+        Y=v=>padT+(1-(v-lo)/(hi-lo))*(H-padT-padB);
+  let g="";
+  [0.5,0,1].forEach(f=>{const y=padT+f*(H-padT-padB);
+    g+=`<line x1="${padL}" x2="${W-padR}" y1="${y}" y2="${y}" stroke="var(--hair)" stroke-width="1"/>`;});
+  g+=`<text x="${W-padR}" y="${padT-2}" text-anchor="end" fill="var(--muted)" font-size="9" font-family="var(--font-mono)">${vmax}</text>`;
+  g+=`<text x="${W-padR}" y="${H-padB-4}" text-anchor="end" fill="var(--muted)" font-size="9" font-family="var(--font-mono)">${vmin}</text>`;
+  g+=`<text x="${padL}" y="${H-2}" fill="var(--muted)" font-size="9" font-family="var(--font-mono)">${pts[0].tm}</text>`;
+  g+=`<text x="${W-padR}" y="${H-2}" text-anchor="end" fill="var(--muted)" font-size="9" font-family="var(--font-mono)">${pts[pts.length-1].tm}</text>`;
+  const xy=pts.map(p=>[X(p.t),Y(p.v)]);
+  let d="M"+xy[0][0].toFixed(1)+" "+xy[0][1].toFixed(1);
+  for(let i=1;i<xy.length;i++){                 // midpoint-smoothed curve
+    const [x0,y0]=xy[i-1],[x1,y1]=xy[i],mx=((x0+x1)/2).toFixed(1);
+    d+=` C ${mx} ${y0.toFixed(1)}, ${mx} ${y1.toFixed(1)}, ${x1.toFixed(1)} ${y1.toFixed(1)}`;}
+  const base=(H-padB).toFixed(1);
+  g+=`<path d="${d} L ${xy[xy.length-1][0].toFixed(1)} ${base} L ${xy[0][0].toFixed(1)} ${base} Z" fill="var(--accent)" opacity="0.07" stroke="none"/>`;
+  g+=`<path d="${d}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`;
+  pts.forEach(p=>{if(p.q&&p.q!=="good")
+    g+=`<circle cx="${X(p.t).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="3.5" fill="${qColor(p.q)}" stroke="var(--surface-1)" stroke-width="2"/>`;});
+  const lp=pts[pts.length-1];
+  g+=`<circle cx="${X(lp.t).toFixed(1)}" cy="${Y(lp.v).toFixed(1)}" r="3.5" fill="var(--accent)" stroke="var(--surface-1)" stroke-width="2"/>`;
+  g+=`<line data-x x1="0" x2="0" y1="${padT}" y2="${H-padB}" stroke="var(--hair2)" stroke-width="1" visibility="hidden"/>`;
+  g+=`<circle data-h r="4" fill="var(--accent)" stroke="var(--surface-1)" stroke-width="2" visibility="hidden"/>`;
+  g+=`<rect x="0" y="0" width="${W}" height="${H}" fill="transparent"/>`;
+  svg.innerHTML=g;
+  const tip=st.el.querySelector(".ttip"),cross=svg.querySelector("[data-x]"),hdot=svg.querySelector("[data-h]");
+  svg.onmousemove=e=>{
+    const r=svg.getBoundingClientRect(),mx=(e.clientX-r.left)*(W/r.width);
+    let best=pts[0],bd=1e18;
+    pts.forEach(p=>{const d=Math.abs(X(p.t)-mx);if(d<bd){bd=d;best=p;}});
+    const bx=X(best.t),by=Y(best.v);
+    cross.setAttribute("x1",bx);cross.setAttribute("x2",bx);cross.setAttribute("visibility","visible");
+    hdot.setAttribute("cx",bx);hdot.setAttribute("cy",by);hdot.setAttribute("visibility","visible");
+    tip.textContent=`${best.tm} · ${best.v} ${st.unit} · ${best.q||"?"}${best.pu?" · "+best.pu:""}`;
+    tip.style.display="block";
+    const cw=st.el.clientWidth,tw=tip.offsetWidth;
+    tip.style.left=Math.min(Math.max(4,(bx/W)*cw-tw/2),cw-tw-4)+"px";
+    tip.style.top="26px";
+  };
+  svg.onmouseleave=()=>{tip.style.display="none";cross.setAttribute("visibility","hidden");hdot.setAttribute("visibility","hidden");};
+}
+/* ----------------------------------------------------------------------- */
+const KINDS=["observation","state","event","command","ack","progress","result","calibration","health","identity","audit","config"];
+const es=new EventSource("/v1/events?since=2000000000"); /* live only, no replay */
+KINDS.forEach(k=>es.addEventListener(k,e=>tick(JSON.parse(e.data))));
+
+refresh(); setInterval(refresh,3000);
+</script>
+</body>
+</html>
