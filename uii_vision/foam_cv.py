@@ -13,7 +13,7 @@ the same frame and params always yield the same numbers, and the params
 carry a version id so a derived value is reproducible from the stored frame
 — the vision analog of "every concentration is recomputable from its cal."
 
-    from extensions.vision.foam_cv import detect, MODEL_ID, rect_roi
+    from uii_vision.foam_cv import detect, MODEL_ID, rect_roi
     out = detect(rgb_uint8, roi=rect_roi(rgb_uint8.shape, 0, 0.2, 1, 1))
     out["coverage_pct"], out["foam_type"], out["image_quality"]
 """

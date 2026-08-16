@@ -1,4 +1,4 @@
-# extensions/vision — the camera profile (foam first)
+# uii_vision — the vision piece
 
 The `vision` instrument-class profile of UII. Two interfaces:
 
@@ -63,7 +63,7 @@ validate — follow **`docs/vision-commissioning.md`**.
 ## Run it on the bench (sim, ~15 s)
 
 ```bash
-python3 -m extensions.vision.demo      # hub + campod in sim; prints live foam %
+python3 -m uii_vision.demo      # hub + campod in sim; prints live foam %
 ```
 
 Or wire it by hand. Hub config (`hub.json`):
@@ -85,7 +85,7 @@ Or wire it by hand. Hub config (`hub.json`):
 # terminal 1 — the hub
 UII_CONFIG=hub.json python3 -m uii.hub.main
 # terminal 2 — the camera agent, sim
-UII_SIM=1 UII_SIM_COVERAGE=35 python3 -m extensions.vision.campod
+UII_SIM=1 UII_SIM_COVERAGE=35 python3 -m uii_vision.campod
 # grab on demand
 uii capture campod-01        # or: POST /v1/commands {"module":"campod-01","type":"capture"}
 ```
@@ -96,7 +96,7 @@ campod reads the on-device credential already at `/etc/eaos/camera-credentials.e
 
 ```bash
 set -a; . /etc/eaos/camera-credentials.env; set +a
-UII_FRAMES_DIR=/var/lib/eaos/frames python3 -m extensions.vision.campod
+UII_FRAMES_DIR=/var/lib/eaos/frames python3 -m uii_vision.campod
 ```
 
 One hub per Jetson (co-located with campod); they share `UII_FRAMES_DIR`, so the

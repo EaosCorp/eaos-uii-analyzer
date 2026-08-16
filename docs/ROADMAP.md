@@ -40,7 +40,7 @@ NOX three-channel interpretation (NO3 = NOX − NO2 with physical-validity
 rules), the deployed gateway's ST9 method timelines ported verbatim, real
 hardware (split-PLC serial bridge, ADS1115), and **pimod** — the module
 agent that replaces the legacy MQTT gateway on the actual NH4MOD Pi
-(`python3 -m extensions.analyzer.pimod`; DEPLOY.md is its runbook; sim
+(`python3 -m uii_analyzer.pimod`; DEPLOY.md is its runbook; sim
 mode runs the identical code anywhere). *Enable for: any real analyzer
 deployment.*
 

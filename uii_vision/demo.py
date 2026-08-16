@@ -6,7 +6,7 @@ track the hidden truth, watch a low-quality frame drop to permitted-use
 'none', and see one grab-on-demand capture flow through the command gate
 with lineage back to its frame.
 
-    python3 -m extensions.vision.demo
+    python3 -m uii_vision.demo
 
 Needs numpy + Pillow (the vision extension's deps).
 """

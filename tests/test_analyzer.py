@@ -2,11 +2,11 @@
 (split-PLC bridge, ST9 timelines) end to end in sim mode."""
 import unittest
 
-from extensions.analyzer.interpret_full import (calibration_complete_full,
+from uii_analyzer.interpret_full import (calibration_complete_full,
                                                 fit_calibration_full,
                                                 interpret_sample_full)
 
-from ..helpers import Bench, get, post, wait_for
+from .helpers import Bench, get, post, wait_for
 
 
 def volts(i0, absorbance):

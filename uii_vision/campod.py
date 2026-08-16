@@ -22,7 +22,7 @@ byte-identical against sim and real.
   UII_FRAMES_DIR ./data/frames    UII_CADENCE_S 10
   (real) CAMERA_HOST/CAMERA_USER/CAMERA_PASSWORD from /etc/eaos/camera-credentials.env
 
-Run: python3 -m extensions.vision.campod
+Run: python3 -m uii_vision.campod
 """
 from __future__ import annotations
 

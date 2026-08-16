@@ -95,7 +95,7 @@ class Bench:
         if module_type:
             env["UII_TYPE"] = module_type
         target = ("uii.refmod" if kind == "refmod"
-                  else "extensions.analyzer.pimod")
+                  else "uii_analyzer.pimod")
         p = subprocess.Popen([sys.executable, "-m", target],
                              cwd=ROOT, env=env,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -105,7 +105,7 @@ class Bench:
     def spawn_inprocess(self, module_id, slot, analyte="NH4", serial=None):
         """In-process analyzer pimod — tests can reach the sim hardware
         (inject PLC lines, read .sent)."""
-        from extensions.analyzer.pimod import PiModule
+        from uii_analyzer.pimod import PiModule
         env = {"UII_HUB": f"127.0.0.1:{self.hub.sb_port}", "UII_SIM": "1",
                "UII_SPEED": str(self.speed), "ANALYTE": analyte,
                "UII_MODULE_ID": module_id, "UII_SLOT": slot,

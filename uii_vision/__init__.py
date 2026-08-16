@@ -11,7 +11,7 @@ What it registers:
                                   foam_coverage
   * module_row_enrichers        — current foam % per camera on /v1/modules
 
-The module agent is `extensions.vision.campod` (run on the edge box). Design
+The module agent is `uii_vision.campod` (run on the edge box). Design
 rationale and the full profile: docs/vision-profile.md.
 """
 from __future__ import annotations

@@ -6,9 +6,9 @@
 > `architecture.md` (the universal core and the class layering it plugs into),
 > `detections.md` (the alert engine this profile configures), `agent-interface.md`.
 >
-> Status: **foam-coverage profile built** at `extensions/vision/` (campod +
+> Status: **foam-coverage profile built** at `uii_vision/` (campod +
 > classical-CV interpreter + telemetry service; 4 end-to-end tests green;
-> `python3 -m extensions.vision.demo`). The rest of the catalog (§4) is design.
+> `python3 -m uii_vision.demo`). The rest of the catalog (§4) is design.
 > The point of this document is to show that a camera is not a new system, it
 > is a new **manifest and interpreter** on the system we already have.
 

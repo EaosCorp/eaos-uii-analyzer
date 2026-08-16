@@ -1,4 +1,31 @@
-# eaos-uii-analyzer
+# eaos-embedded
+
+**Instrument-side and edge software — the embedded family.** One repository, three pieces that
+share a contract and a hub, plus a set of hub extensions:
+
+```
+eaos-embedded/
+├── uii/               the Universal Instrument Interface — the CORE: protocol · hub · cli · refmod (reference module)
+├── uii_analyzer/      the chemical-analyzer piece: the NH4MOD retrofit field agent (pimod), hardware, interpretation
+│   └── docs/            DEPLOY runbook
+├── uii_vision/        the vision piece: camera module (campod), foam/level CV, JPEG frames, edge API, commissioning
+│   └── docs/            vision profile · commissioning guide
+├── extensions/        HUB extensions, enabled by config flag: authority · detections · exports · faceplate · scheduler
+├── docs/              architecture · agent interface · detections · roadmap
+├── tests/             core/ · test_analyzer · test_vision · test_<extension>   (python3 -m pytest tests, 71 tests)
+└── demo.py · demo_full.py · BENCH.md
+```
+
+A piece is a top-level package (`uii_analyzer`, `uii_vision`) the hub loads by name from its
+`extensions` config the same way it loads a hub extension; pieces are instrument classes with
+their own hardware and lifecycle, extensions are hub features. Split into pieces 2026-08-16
+(was `eaos-uii-analyzer` with the vision work on a branch); canon: `eaos-architecture/01-components/
+registry.md` (the embedded layer — owns instrument-side interfaces and field agents; must not own
+the record or a facility's truth).
+
+---
+
+# UII — the contract
 
 **UII — the Universal Instrument Interface.** One contract between field
 instruments and a hub, plus a working chemical-analyzer implementation of

@@ -7,7 +7,7 @@ What the core doesn't need but the field does:
   * the real method timelines (ST9 tables, all analytes) — timelines.py
   * real hardware: split-PLC serial bridge + ADS1115 — hw.py
   * pimod, the module agent for the actual NH4MOD Raspberry Pi
-    (python3 -m extensions.analyzer.pimod; UII_SIM=1 runs it anywhere)
+    (python3 -m uii_analyzer.pimod; UII_SIM=1 runs it anywhere)
 
 Hook used: hub.southbound.interpreters["chemical-analyzer"] — replaces the
 core's NH4/PO4-only interpreter with the multi-analyte version. Everything

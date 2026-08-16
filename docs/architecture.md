@@ -155,7 +155,7 @@ extension services; the spine and the two gateways are core.
 * **Detections** (`extensions/detections/`): the hub's own status engine;
   see `detections.md`.
 * **Interpret** (`uii/hub/interpret.py` core two-point;
-  `extensions/analyzer/` full field math): raw captures become calibration
+  `uii_analyzer/` full field math): raw captures become calibration
   envelopes and concentrations on the hub so every derived value is
   recomputable and carries lineage.
 
@@ -202,14 +202,14 @@ the exit demo for the whole design and runs in `demo.py` and `tests/`.
 
 ## 7. The module agent (pimod) and the simulation rule
 
-`extensions/analyzer/pimod.py` is the field agent for the NH4MOD retrofit: port A is the PLC,
+`uii_analyzer/pimod.py` is the field agent for the NH4MOD retrofit: port A is the PLC,
 port B the pump controller, ADS1115 the detector. **BRIDGE mode** forwards
 PLC↔device serial untouched (plant authority; every line becomes evidence);
 **ENDPOINT mode** (latched, exactly like the field code) executes the ST9
 method timelines ported verbatim from the deployed gateway.
 
 The simulation rule: `UII_SIM=1` swaps only the hardware layer
-(`extensions/analyzer/hw.py`) for a simulator with hidden-truth detector physics; the
+(`uii_analyzer/hw.py`) for a simulator with hidden-truth detector physics; the
 agent code is byte-identical. The hub cannot tell fake from real, which is
 what makes the software bench trustworthy: anything proven against sim
 modules ships to the integration bench as a git tag, never as edits-on-box.

@@ -31,7 +31,7 @@ Environment:
   PORT_A/PORT_B/BAUD, ADC_ENABLED/ADC_GAIN/ADC_CHANNEL/DIVIDER_RATIO/
   SHUNT_OHMS/SIGNAL_MODE — identical to the legacy gateway.
 
-Run: python3 -m extensions.analyzer.pimod
+Run: python3 -m uii_analyzer.pimod
 """
 from __future__ import annotations
 

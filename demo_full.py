@@ -73,7 +73,7 @@ def spawn_module(hub_sb_port, module_id, slot, analyte="NH4", serial=None,
                PYTHONPATH=ROOT)
     if module_type:
         env["UII_TYPE"] = module_type
-    return subprocess.Popen([sys.executable, "-m", "extensions.analyzer.pimod"],
+    return subprocess.Popen([sys.executable, "-m", "uii_analyzer.pimod"],
                             cwd=ROOT, env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 

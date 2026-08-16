@@ -6,7 +6,7 @@
 > baseline), and *how its pixels map to the world* (thresholds for foam, a
 > scale for level). This is that procedure, done once per viewpoint, redone
 > only when the view changes. Companions: `vision-profile.md` (design),
-> `extensions/vision/` (the code), `detections.md` (alert rules).
+> `uii_vision/` (the code), `detections.md` (alert rules).
 
 ---
 

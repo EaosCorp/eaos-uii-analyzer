@@ -11,7 +11,7 @@ Config via env (all optional):
   UII_API_PORT       hub HTTP API           (default 8400)   UII_SB_PORT 7300
   UII_MODULE_ID campod-01   UII_SLOT slot-1   UII_CADENCE_S 15   UII_HUB_ID hub-edge-01
 
-Run: python3 -m extensions.vision.edge
+Run: python3 -m uii_vision.edge
 """
 from __future__ import annotations
 

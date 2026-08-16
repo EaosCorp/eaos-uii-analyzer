@@ -32,7 +32,7 @@ def spawn_campod(bench, module_id="campod-1", slot="slot-1", serial=None,
                UII_FRAMES_DIR=frames_dir, UII_CADENCE_S="0.05",
                UII_SIM_COVERAGE=str(coverage), UII_SIM_FOAM=foam,
                UII_SIM_QUALITY=str(quality), PYTHONPATH=ROOT)
-    p = subprocess.Popen([sys.executable, "-m", "extensions.vision.campod"],
+    p = subprocess.Popen([sys.executable, "-m", "uii_vision.campod"],
                          cwd=ROOT, env=env,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     bench.procs.append(p)

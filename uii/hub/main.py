@@ -12,7 +12,8 @@
 Run: python3 -m uii.hub.main
 
 Extension loading: each name in config `extensions` resolves to the
-package `extensions.<name>`, whose `setup(hub)` wires it in through the
+piece `uii_<name>` (analyzer, vision) or the hub extension `extensions.<name>`
+(authority, detections, exports, faceplate, scheduler), whose `setup(hub)` wires it in through the
 hub's hooks BEFORE the API starts serving:
 
   hub.southbound.interpreters[cls]   result interpreter per instrument class
@@ -80,7 +81,14 @@ class Hub:
 
     def start(self):
         for name in self.config.extensions:
-            importlib.import_module(f"extensions.{name}").setup(self)
+            # instrument PIECES are top-level packages (uii_analyzer, uii_vision);
+            # hub extensions (authority, detections, exports, faceplate, scheduler)
+            # live under extensions/. Config names them the same way either way.
+            try:
+                mod = importlib.import_module(f"uii_{name}")
+            except ModuleNotFoundError:
+                mod = importlib.import_module(f"extensions.{name}")
+            mod.setup(self)
 
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()

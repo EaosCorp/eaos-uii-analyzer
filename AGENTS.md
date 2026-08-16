@@ -11,16 +11,16 @@ are exposed to you.
 ## Ground rules
 
 * **Hub + CLI are stdlib-only Python 3.10+.** Do not add dependencies.
-  `pyserial`/`adafruit-*` are allowed inside `extensions/analyzer/hw.py` only, behind
+  `pyserial`/`adafruit-*` are allowed inside `uii_analyzer/hw.py` only, behind
   the existing guarded imports.
-* `extensions/analyzer/timelines.py` is ported VERBATIM from deployed
+* `uii_analyzer/timelines.py` is ported VERBATIM from deployed
   field code. Never tune ST9 strings or timings without a wet-chemistry
   reason.
 * The universal core (`uii/`) must stay instrument-class agnostic and
   stdlib-only. Anything else enters through the declared hooks (see
   `uii/hub/main.py` docstring) as an `extensions/<name>/` package with a
   `setup(hub)` — never by adding imports to core files. Field/NOX/hardware
-  logic lives in `extensions/analyzer/`.
+  logic lives in `uii_analyzer/`.
 * Every fact is an evidence envelope. Never add a side channel (log file,
   cache, direct socket) that carries data the log does not.
 * All commands to modules go through the command gateway. No exceptions,
